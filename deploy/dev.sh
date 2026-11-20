@@ -26,9 +26,9 @@ case "${1:-check}" in
   check)
     (
       cd "$root"
-      uv run --project agent --locked ruff check --config agent/pyproject.toml agent
-      uv run --project agent --locked ruff format --config agent/pyproject.toml --check agent
-      uv run --project agent --locked python -m pytest agent/tests
+      uv run --project agent --locked ruff check --config agent/pyproject.toml agent evals
+      uv run --project agent --locked ruff format --config agent/pyproject.toml --check agent evals
+      uv run --project agent --locked python -m pytest agent/tests evals/tests
       npm run --prefix frontend lint
       npm run --prefix frontend typecheck
       npm run --prefix frontend build

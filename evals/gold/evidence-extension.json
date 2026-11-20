@@ -1,0 +1,177 @@
+{
+  "nspu_m_docs": {
+    "url": "https://nspu.ru/abitur/magistr/sroki-priema.php",
+    "locator": "Магистратура, кампания 2026 · окончание приёма документов",
+    "quote": "17.08.26 (до 17.00 НСК)",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_m_consent": {
+    "url": "https://nspu.ru/abitur/magistr/sroki-priema.php",
+    "locator": "Магистратура · окончание приёма согласий, основной этап",
+    "quote": "24.08.26 (до 12.00 МСК)",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_adm_internal": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2671",
+    "locator": "Окончание приёма документов на бюджет, бакалавриат и специалитет, внутренние испытания",
+    "quote": "20 июля",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_adm_ege": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2671",
+    "locator": "Окончание приёма документов на бюджет, бакалавриат и специалитет, без внутренних испытаний",
+    "quote": "25 июля",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_adm_contract": {
+    "url": "https://education.sgugit.ru//abiturientam/postuplenie/bakalavriat-spetsialitet/",
+    "locator": "Бакалавриат и специалитет, платные места, календарь 2026",
+    "quote": "27 августа 2026 года – день завершения заключения договоров об образовании",
+    "checked_on": "2026-11-20"
+  },
+  "sib_sample_profile": {
+    "url": "https://do.sibsutis.ru/images/1291_zayavlenie_sibguti_2024_bakalavriat_vnebyudjet.pdf",
+    "locator": "Образец 2024 · перечень направлений и профилей, код 09.03.03",
+    "quote": "Прикладная информатика в экономике",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_m_post": {
+    "url": "https://nspu.ru/abitur/magistr/sposoby-podachi-dokumentov.php",
+    "locator": "Магистратура · способы подачи документов",
+    "quote": "направляет в Университет через оператора почтовой связи",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_triple_budget": {
+    "url": "https://nspu.ru/news/zaselenie-v-obshchezhitie-ngpu-chto-nuzhno-znat-studentam-i-ikh-roditelyam/",
+    "locator": "Таблица ежемесячной платы, 3-местная комната, бюджет",
+    "quote": "1159",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_triple_paid": {
+    "url": "https://nspu.ru/news/zaselenie-v-obshchezhitie-ngpu-chto-nuzhno-znat-studentam-i-ikh-roditelyam/",
+    "locator": "Таблица ежемесячной платы, 3-местная комната, платная основа",
+    "quote": "1517",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_intl_room": {
+    "url": "https://nspu.ru/news/zaselenie-v-obshchezhitie-ngpu-chto-nuzhno-znat-studentam-i-ikh-roditelyam/",
+    "locator": "Абзац про иностранных студентов и Управление международной деятельности",
+    "quote": "учебный корпус №1, кабинет №220",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_dorm_campus2": {
+    "url": "https://sgugit.ru/university/struct/obshchezhitiya/",
+    "locator": "Студгородок № 2, правый берег",
+    "quote": "ул. Писарева, д. 36 и д. 36/1 (общежитие № 3 и общежитие № 4)",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_rules_passport": {
+    "url": "https://education.sgugit.ru/upload/university/struct/obshchezhitiya/Pravila-prozhivaniya.pdf",
+    "locator": "Правила проживания · пункт 2.2",
+    "quote": "паспорт",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_rules_med": {
+    "url": "https://education.sgugit.ru/upload/university/struct/obshchezhitiya/Pravila-prozhivaniya.pdf",
+    "locator": "Правила проживания · пункт 2.2",
+    "quote": "медицинскую справку установленного образца.",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_accessible": {
+    "url": "https://www.stu.ru/life/index.php?page=3281",
+    "locator": "Общежития · доступность",
+    "quote": "комнаты 137 и 139 блока 1/3",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_dorm_account": {
+    "url": "https://business.nstu.ru/objaga",
+    "locator": "Памятка 2025 года · где узнать дату заселения",
+    "quote": "в твоем личном кабинете на портале.",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_practice_second": {
+    "url": "https://business.nstu.ru/faq_2",
+    "locator": "FAQ факультета бизнеса · практика, конец второго курса",
+    "quote": "учебная (ознакомительная) практика",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_practice_third": {
+    "url": "https://business.nstu.ru/faq_2",
+    "locator": "FAQ факультета бизнеса · практика, конец третьего курса",
+    "quote": "в конце третьего курса – производственная",
+    "checked_on": "2026-11-20"
+  },
+  "sib_remote_channels": {
+    "url": "https://do.sibsutis.ru/tehnologii_obucheniya",
+    "locator": "Технологии обучения · взаимодействие с преподавателем",
+    "quote": "по электронной почте и посредством форумов.",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_leave_form": {
+    "url": "https://nspu.ru/smk/formDetail.php?formId=12433",
+    "locator": "Карточка формы заявления · введение в действие",
+    "quote": "27.11.2025",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_career_audience": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=3675",
+    "locator": "Центр развития карьеры · направления работы",
+    "quote": "консультирование соискателей (студентов и выпускников) по вопросам трудоустройства",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_career_vacancies": {
+    "url": "https://www.stu.ru/about/index.php?page=2609",
+    "locator": "Информация по трудоустройству · где искать вакансии",
+    "quote": "на странице Центра развития карьеры",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_commission": {
+    "url": "https://sgugit.ru/university/struct/sovety/stipendialnaya-komissiya/",
+    "locator": "Стипендиальная комиссия · цель создания",
+    "quote": "координации стипендиального обеспечения студентов, оказания материальной поддержки студентам",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_eduroam": {
+    "url": "https://help.nsu.ru/pages/viewpage.action?pageId=27820054",
+    "locator": "Инструкция eduroam · учётные данные",
+    "quote": "Логин - полный адрес Вашей университетской почты",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_pwd": {
+    "url": "https://help.nsu.ru/pages/viewpage.action?pageId=27820054",
+    "locator": "Инструкция eduroam · адрес за ссылкой на смену пароля",
+    "quote": "Сменить пароль от университетского аккаунта можно на сайте pwd.nsu.ru",
+    "checked_on": "2026-11-20",
+    "linked_url": "https://pwd.nsu.ru/"
+  },
+  "nspu_mfc_current": {
+    "url": "https://nspu.ru/news/mnogofunktsionalnyy-tsentr-ngpu-edinoe-okno-voprosy-i-otvety/",
+    "locator": "МФЦ · перечень справок",
+    "quote": "справку о месте обучения (подтверждение факта обучения в НГПУ)",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_mfc_transfer": {
+    "url": "https://nspu.ru/news/mnogofunktsionalnyy-tsentr-ngpu-edinoe-okno-voprosy-i-otvety/",
+    "locator": "МФЦ · перечень справок",
+    "quote": "справку о периоде обучения (при переводе)",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_mfc_exit": {
+    "url": "https://nspu.ru/news/mnogofunktsionalnyy-tsentr-ngpu-edinoe-okno-voprosy-i-otvety/",
+    "locator": "МФЦ · перечень справок",
+    "quote": "справку об обучении (при отчислении)",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_lib_window": {
+    "url": "https://lib.nspu.ru/readers/faq/faq.php",
+    "locator": "FAQ библиотеки · продление",
+    "quote": "за 3 дня до истечения срока возврата",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_lib_count": {
+    "url": "https://lib.nspu.ru/readers/faq/?SHOWALL_1=1&SHOWALL_2=1",
+    "locator": "FAQ библиотеки · максимальное число продлений книг, выданных на 14 дней",
+    "quote": "для книг, выданных на 14 дней (не более 2-х раз подряд)",
+    "checked_on": "2026-11-20"
+  }
+}

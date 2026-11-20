@@ -29,4 +29,5 @@ services:
     restart: "no"
     volumes:
       - ../agent/src/agent:/app/src/agent:ro
+      - ../evals:/app/evals:ro
     command: ["uvicorn", "agent.http:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
