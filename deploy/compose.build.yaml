@@ -1,0 +1,14 @@
+services:
+  frontend:
+    build:
+      context: ../frontend
+      target: prod
+    pull_policy: build
+  backend:
+    build:
+      context: ../backend
+    pull_policy: build
+  agent:
+    build:
+      context: ../agent
+    pull_policy: build

@@ -1,0 +1,53 @@
+name: neti-next
+
+x-runtime: &runtime
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  frontend:
+    <<: *runtime
+    image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/frontend:${IMAGE_TAG:-local}
+    env_file:
+      - path: ${FRONTEND_ENV_FILE:-../frontend/.env}
+        required: false
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    <<: *runtime
+    image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/backend:${IMAGE_TAG:-local}
+    env_file:
+      - path: ${BACKEND_ENV_FILE:-../backend/.env}
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null \"http://127.0.0.1:$${BACKEND_PORT:-8000}/api/health\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  agent:
+    <<: *runtime
+    image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/agent:${IMAGE_TAG:-local}
+    env_file:
+      - path: ${AGENT_ENV_FILE:-../agent/.env}
+        required: false
+    environment:
+      ROUTERAI_NETWORK_INTERFACE: ""
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8001/agent/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

@@ -1,0 +1,15 @@
+:root {
+  font: 1rem/1.6 system-ui, sans-serif;
+  color: #172927;
+  background: #f7f8f4;
+}
+main {
+  max-width: 44rem;
+  margin: clamp(2rem, 10vh, 7rem) auto;
+  padding: 0 1.25rem;
+}
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 7vw, 3.5rem);
+  line-height: 1.1;
+}
