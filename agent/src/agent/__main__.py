@@ -1,24 +1,27 @@
+"""Запускает агента из командной строки."""
+
 import argparse
 import json
 from urllib.parse import quote
 
 from . import AgentError, ask
-from .service import answer_question
+from .composition import answer_question
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Текстовый агент RouterAI")
+
     parser.add_argument("question", help="Вопрос агенту")
     parser.add_argument("--model", help="Идентификатор модели RouterAI")
-    parser.add_argument(
-        "--web", action="store_true", help="Один поиск перед генерацией ответа"
-    )
+    parser.add_argument("--web", action="store_true", help="Один поиск перед генерацией ответа")
     parser.add_argument("--json", action="store_true", help="Ответ и метрики в JSON")
+
     options = parser.parse_args()
 
     try:
         if options.web:
             result = answer_question(options.question, model=options.model)
+
             if result["status"] == "invalid":
                 raise AgentError("Не удалось разобрать ответ веб-агента.")
         else:
@@ -30,10 +33,12 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False))
     else:
         print(result["answer"])
+
         for citation in result.get("citations", []):
             if citation["verified"]:
                 label = citation["quote"].replace("[", "\\[").replace("]", "\\]")
                 url = quote(citation["url"], safe=":/?&=#%+;,@!$'*-._~")
+
                 print(f"\n[«{label}»]({url})")
 
 

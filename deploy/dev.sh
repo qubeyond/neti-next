@@ -22,13 +22,17 @@ case "${1:-check}" in
     cd "$root"
     uv sync --project agent --locked
     npm ci --prefix frontend
+    uv run --project agent --locked pre-commit install
     ;;
   check)
     (
       cd "$root"
-      uv run --project agent --locked ruff check --config agent/pyproject.toml agent evals
-      uv run --project agent --locked ruff format --config agent/pyproject.toml --check agent evals
+      uv run --project agent --locked ruff check --config agent/pyproject.toml agent evals scripts
+      uv run --project agent --locked ruff format --config agent/pyproject.toml --check agent evals scripts
+      uv run --project agent --locked python scripts/hooks/check_code_style.py
+      uv run --project agent --locked pyright --project agent/pyproject.toml
       uv run --project agent --locked python -m pytest agent/tests evals/tests
+      diff -u docs/api/agent.openapi.json <(uv run --project agent --locked python -c 'import json; from agent.app import app; print(json.dumps(app.openapi(), ensure_ascii=False, indent=2, sort_keys=True))')
       npm run --prefix frontend lint
       npm run --prefix frontend typecheck
       npm run --prefix frontend build
@@ -39,6 +43,7 @@ case "${1:-check}" in
     export AGENT_ENV_FILE="$root/agent/.env.example"
     docker compose --env-file .env.example -f compose.yaml -f compose.dev.yaml config --quiet
     docker compose --env-file .env.example -f compose.yaml config --quiet
+    docker compose --env-file .env.example -f compose.yaml -f compose.agent-network.yaml config --quiet
     ;;
   *)
     echo 'Использование: deploy/dev.sh {init-env|setup|check}' >&2

@@ -1,3 +1,5 @@
+"""Адаптирует HTTP-контракты поисковых провайдеров."""
+
 import json
 from collections.abc import Callable
 from html import unescape
@@ -6,9 +8,11 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from .config import AgentError, _setting
+from agent.shared.config import _setting
+from agent.shared.errors import AgentError
 
-SearchResult = dict[str, str]
+from ..domain.sources import SearchResult
+
 API_KEYS = {
     "brave": "BRAVE_SEARCH_API_KEY",
     "serper": "SERPER_API_KEY",
@@ -21,6 +25,11 @@ API_KEYS = {
 KEYLESS = ("mwmbl", "wiby", "marginalia", "firecrawl")
 ALTERNATIVES = (*KEYLESS, *API_KEYS, "searxng")
 ATTRIBUTION = {"wiby": "https://wiby.me/"}
+EXA_SEARCH_OBJECTIVE = (
+    "Найди прямые официальные страницы и документы нужного вуза, "
+    "которые подтверждают ответ на вопрос. Подбери выдержки с нужными датами, "
+    "фактами и условиями. Учитывай филиал, программу и год, если они указаны."
+)
 
 
 class SearchBlocked(AgentError):
@@ -54,6 +63,7 @@ def missing_setting(provider: str, settings: dict[str, str]) -> str | None:
 
 def _request(provider: str, query: str, limit: int, key: str, instance: str) -> Request:
     bearer = {"Authorization": f"Bearer {key}"} if key else {}
+
     if provider == "brave":
         return _get(
             "https://api.search.brave.com/res/v1/web/search",
@@ -66,6 +76,7 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             {"X-Subscription-Token": key},
         )
+
     if provider == "serper":
         return _post(
             "https://google.serper.dev/search",
@@ -77,6 +88,7 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             {"X-API-KEY": key},
         )
+
     if provider == "serpapi":
         return _get(
             "https://serpapi.com/search.json",
@@ -88,16 +100,20 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
                 "api_key": key,
             },
         )
+
     if provider == "exa":
         return _post(
             "https://api.exa.ai/search",
             {
                 "query": query,
-                "type": "lite",
+                "type": "auto",
                 "numResults": limit,
+                "contents": {"highlights": True},
+                "objective": EXA_SEARCH_OBJECTIVE,
             },
             {"x-api-key": key},
         )
+
     if provider == "parallel":
         return _post(
             "https://api.parallel.ai/v1/search",
@@ -108,6 +124,7 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             {"x-api-key": key},
         )
+
     if provider == "linkup":
         return _post(
             "https://api.linkup.so/v1/search",
@@ -119,6 +136,7 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             bearer,
         )
+
     if provider == "firecrawl":
         return _post(
             "https://api.firecrawl.dev/v2/search",
@@ -129,6 +147,7 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             bearer,
         )
+
     if provider == "langsearch":
         return _post(
             "https://api.langsearch.com/v1/web-search",
@@ -138,11 +157,14 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             bearer,
         )
+
     if provider == "mwmbl":
         params = {"q": query, **({"api_key": key} if key else {})}
         return _get("https://api.mwmbl.org/api/v2/search/", params)
+
     if provider == "wiby":
         return _get("https://wiby.me/json/", {"q": query})
+
     if provider == "marginalia":
         return _get(
             "https://api2.marginalia-search.com/search",
@@ -152,10 +174,10 @@ def _request(provider: str, query: str, limit: int, key: str, instance: str) -> 
             },
             {"API-Key": key or "public"},
         )
+
     if provider == "searxng":
-        return _get(
-            f"{instance}/search", {"q": query, "format": "json", "language": "ru"}
-        )
+        return _get(f"{instance}/search", {"q": query, "format": "json", "language": "ru"})
+
     raise AgentError(f"Неизвестный поисковик: {provider}.")
 
 
@@ -163,7 +185,7 @@ RESPONSE_FIELDS = {
     "brave": (("web", "results"), "url", "title", "description"),
     "serper": (("organic",), "link", "title", "snippet"),
     "serpapi": (("organic_results",), "link", "title", "snippet"),
-    "exa": (("results",), "url", "title", "text"),
+    "exa": (("results",), "url", "title", "highlights"),
     "parallel": (("results",), "url", "title", "excerpts"),
     "linkup": (("results",), "url", "name", "content"),
     "firecrawl": (("data", "web"), "url", "title", "description"),
@@ -178,50 +200,67 @@ RESPONSE_FIELDS = {
 def _results(provider: str, payload, limit: int) -> list[SearchResult]:
     if isinstance(payload, dict):
         error_code = str(payload.get("code", "200"))
+
         if provider == "langsearch" and error_code in {"401", "402", "403", "429"}:
             raise SearchBlocked(f"{provider}: доступ или квота, код {error_code}.")
+
         if (
             payload.get("error")
             or payload.get("success") is False
             or (provider == "langsearch" and error_code != "200")
         ):
             raise AgentError(f"{provider}: запрос отклонён API.")
+
         if (
             provider == "serpapi"
             and "organic_results" not in payload
             and (payload.get("search_metadata") or {}).get("status") == "Success"
         ):
             return []
-        if (
-            provider == "brave"
-            and "web" not in payload
-            and payload.get("type") == "search"
-        ):
+
+        if provider == "brave" and "web" not in payload and payload.get("type") == "search":
             return []
+
     path, url_field, title_field, snippet_field = RESPONSE_FIELDS[provider]
+
     try:
         for field in path:
             payload = payload[field]
     except (KeyError, TypeError):
         raise AgentError(f"{provider}: неизвестный формат ответа.") from None
+
     if not isinstance(payload, list):
         raise AgentError(f"{provider}: не получен список результатов.")
+
     results = []
+
     for item in payload:
         if not isinstance(item, dict):
             continue
+
         url = item.get(url_field)
+
         if not isinstance(url, str):
             continue
+
         try:
             parsed = urlsplit(url)
+
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
                 continue
         except ValueError:
             continue
+
         snippet = item.get(snippet_field) or ""
+
         if isinstance(snippet, list):
-            snippet = " ".join(piece for piece in snippet if isinstance(piece, str))
+            pieces = [piece for piece in snippet if isinstance(piece, str)]
+            snippet = (
+                " … ".join(piece.strip() for piece in pieces if piece.strip())
+                if provider == "exa"
+                else " ".join(pieces)
+            )
+
         results.append(
             {
                 "url": url,
@@ -229,10 +268,13 @@ def _results(provider: str, payload, limit: int) -> list[SearchResult]:
                 "snippet": unescape(str(snippet)),
             }
         )
+
         if len(results) == limit:
             break
+
     if payload and not results:
         raise AgentError(f"{provider}: в выдаче нет распознаваемых веб-ссылок.")
+
     return results
 
 
@@ -244,11 +286,12 @@ def make_api_searcher(
 ) -> Callable[[str], list[SearchResult]]:
     name = API_KEYS.get(provider)
     key = _setting(settings, name) if name else ""
+
     if provider in {"mwmbl", "marginalia", "firecrawl"}:
         key = _optional(settings, f"{provider.upper()}_API_KEY") or ""
-    instance = (
-        _setting(settings, "SEARXNG_URL").rstrip("/") if provider == "searxng" else ""
-    )
+
+    instance = _setting(settings, "SEARXNG_URL").rstrip("/") if provider == "searxng" else ""
+
     if instance:
         try:
             url = urlsplit(instance)
@@ -259,18 +302,21 @@ def make_api_searcher(
             )
         except ValueError:
             valid = False
+
         if not valid:
-            raise AgentError(
-                "SEARXNG_URL должен быть базовым HTTP(S)-адресом своего сервера."
-            )
+            raise AgentError("SEARXNG_URL должен быть базовым HTTP(S)-адресом своего сервера.")
+
     last_request = None
 
     def search(query: str) -> list[SearchResult]:
         nonlocal last_request
+
         if provider in KEYLESS and last_request is not None:
             sleep(max(0.0, 1.05 - (monotonic() - last_request)))
+
         request = _request(provider, query, limit, key, instance)
         last_request = monotonic()
+
         try:
             with urlopen(request, timeout=timeout) as response:
                 payload = json.load(response)
@@ -278,14 +324,14 @@ def make_api_searcher(
             if error.code in {401, 402, 403, 429} or (
                 provider == "marginalia" and error.code == 503
             ):
-                raise SearchBlocked(
-                    f"{provider}: доступ или квота, HTTP {error.code}."
-                ) from None
+                raise SearchBlocked(f"{provider}: доступ или квота, HTTP {error.code}.") from None
+
             raise AgentError(f"{provider}: HTTP {error.code}.") from None
         except (URLError, TimeoutError):
             raise AgentError(f"{provider}: ошибка сети или таймаут.") from None
         except ValueError:
             raise AgentError(f"{provider}: ответ не в формате JSON.") from None
+
         return _results(provider, payload, limit)
 
     return search

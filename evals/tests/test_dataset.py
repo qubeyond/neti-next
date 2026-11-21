@@ -14,12 +14,7 @@ def test_every_eval_case_has_a_valid_answer_key():
         EVALS / "gold/answers-extension.jsonl"
     )
     gold = {row["id"]: row for row in answers}
-    assert (
-        len(questions)
-        == len(answers)
-        == len(gold)
-        == len({row["id"] for row in questions})
-    )
+    assert len(questions) == len(answers) == len(gold) == len({row["id"] for row in questions})
     evidence = json.loads((EVALS / "gold/evidence.json").read_text(encoding="utf-8"))
     evidence.update(
         json.loads((EVALS / "gold/evidence-extension.json").read_text(encoding="utf-8"))
@@ -31,11 +26,8 @@ def test_every_eval_case_has_a_valid_answer_key():
         if item["suite"] == "web":
             assert case["required_facts"] and case["evidence_ids"], item["id"]
         elif item["suite"] == "grounding":
-            assert (
-                case["expected_action"] == "unverified"
-                and case["provided_evidence_ids"]
-            ), item["id"]
+            assert case["expected_action"] == "unverified" and case["provided_evidence_ids"], item[
+                "id"
+            ]
         for ref in case["evidence_ids"] + case.get("provided_evidence_ids", []):
-            assert evidence[ref]["quote"] and evidence[ref]["url"].startswith(
-                "https://"
-            ), ref
+            assert evidence[ref]["quote"] and evidence[ref]["url"].startswith("https://"), ref

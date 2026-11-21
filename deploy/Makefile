@@ -11,7 +11,7 @@ check:
 	./dev.sh check
 
 format:
-	cd .. && uv run --project agent --locked ruff format --config agent/pyproject.toml agent evals
+	cd .. && uv run --project agent --locked ruff format --config agent/pyproject.toml agent evals scripts
 
 dev:
 	./dev.sh init-env

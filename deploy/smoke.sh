@@ -11,8 +11,10 @@ export IMAGE_PREFIX=neti-next-smoke IMAGE_TAG=local
 mode=${1:-both}
 
 probe() (
-  local target=$1 overlay=$2 port address
-  local -a stack=(docker compose --env-file .env.example -p "neti-smoke-$target-$$" -f compose.yaml -f "$overlay")
+  local target=$1 overlay=$2 port address image
+  export AGENT_DOCKER_NETWORK="neti-smoke-$target-$$-consumers"
+  local -a stack=(docker compose --env-file .env.example -p "neti-smoke-$target-$$" -f compose.yaml -f "$overlay" -f compose.agent-network.yaml)
+  docker network create "$AGENT_DOCKER_NETWORK" >/dev/null
   cleanup() {
     local status=$?
     if ((status > 0)); then
@@ -20,6 +22,7 @@ probe() (
       "${stack[@]}" logs --tail=30 || true
     fi
     "${stack[@]}" down --remove-orphans
+    docker network rm "$AGENT_DOCKER_NETWORK" >/dev/null
     return "$status"
   }
   trap cleanup EXIT
@@ -32,6 +35,26 @@ probe() (
   curl --fail --silent --show-error "$address/agent/health" | grep -F '{"status":"ok"}'
   [[ $(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$address/agent/v1/answers" \
     -H 'Content-Type: application/json' -d '{"question":"Где расписание?"}') == 503 ]]
+  "${stack[@]}" exec -T backend wget -q -O - http://agent:8001/agent/health | grep -F '{"status":"ok"}'
+  image=$("${stack[@]}" images -q agent)
+  docker run --rm --network "$AGENT_DOCKER_NETWORK" --entrypoint python "$image" -c '
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+base = "http://neti-agent:8001/agent"
+assert urlopen(base + "/health", timeout=5).read() == b"{\"status\":\"ok\"}"
+request = Request(
+    base + "/v1/answers",
+    data=b"{\"question\":\"test\"}",
+    headers={"Content-Type": "application/json"},
+)
+try:
+    urlopen(request, timeout=5)
+except HTTPError as error:
+    assert error.code == 503, error.code
+else:
+    raise AssertionError("Expected disabled provider response")
+'
   "${stack[@]}" exec -T agent python -m agent --help >/dev/null
   echo "Smoke $target: ok"
 )

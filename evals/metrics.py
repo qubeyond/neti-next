@@ -8,10 +8,7 @@ def _average(values: list[float]) -> float | None:
 
 
 def retrieval_metrics(cases: list[dict], limit: int) -> dict:
-    values = {
-        name: []
-        for name in ("hit_rate", "recall", "complete_retrieval_rate", "mrr", "ndcg")
-    }
+    values = {name: [] for name in ("hit_rate", "recall", "complete_retrieval_rate", "mrr", "ndcg")}
     for case in cases:
         if case["status"] not in {"ok", "empty"} or not case["gold_urls"]:
             continue
@@ -69,8 +66,7 @@ def answer_metrics(cases: list[dict], *, expected_judge: bool = True) -> dict:
     grades = [
         case["grade"]
         for case in cases
-        if case["status"] in {"answered", "partial"}
-        and "correct" in case.get("grade", {})
+        if case["status"] in {"answered", "partial"} and "correct" in case.get("grade", {})
     ]
     citations = [citation for case in cases for citation in case.get("citations", [])]
     malformed = sum(case.get("malformed_citations", 0) for case in cases)
@@ -83,22 +79,14 @@ def answer_metrics(cases: list[dict], *, expected_judge: bool = True) -> dict:
         "scored_answers": len(grades),
         "outcomes": dict(outcomes),
         "strict_case_pass_rate": (
-            _average([outcomes["strict_pass"] / len(cases)])
-            if expected_judge and cases
-            else None
+            _average([outcomes["strict_pass"] / len(cases)]) if expected_judge and cases else None
         ),
         "answer_coverage": _average([answered / len(cases)]) if cases else None,
         "answer_accuracy_conditional": _average([grade["correct"] for grade in grades]),
-        "answer_support_rate_conditional": _average(
-            [grade["supported"] for grade in grades]
-        ),
-        "critical_error_rate_conditional": _average(
-            [grade["critical_error"] for grade in grades]
-        ),
+        "answer_support_rate_conditional": _average([grade["supported"] for grade in grades]),
+        "critical_error_rate_conditional": _average([grade["critical_error"] for grade in grades]),
         "citation_verbatim_rate": (
-            _average(
-                [sum(citation["verified"] for citation in citations) / quote_count]
-            )
+            _average([sum(citation["verified"] for citation in citations) / quote_count])
             if quote_count
             else None
         ),
@@ -108,9 +96,7 @@ def answer_metrics(cases: list[dict], *, expected_judge: bool = True) -> dict:
         "fact_recall_conditional": _average(
             [fact["verdict"] == "correct" for fact in fact_results]
         ),
-        "fact_support_rate_on_correct": _average(
-            [fact["supported"] for fact in fact_correct]
-        ),
+        "fact_support_rate_on_correct": _average([fact["supported"] for fact in fact_correct]),
     }
 
 
@@ -121,10 +107,7 @@ def breakdown(cases: list[dict], limit: int, *, expected_judge: bool = True) -> 
         for case in cases
         if case["search"]["status"] in {"ok", "empty"}
         and case["search"]["gold_urls"]
-        and all(
-            rank is not None and rank <= limit
-            for rank in case["search"]["gold_urls"].values()
-        )
+        and all(rank is not None and rank <= limit for rank in case["search"]["gold_urls"].values())
     ]
     contexts = [
         facts

@@ -41,6 +41,8 @@ services:
   agent:
     <<: *runtime
     image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/agent:${IMAGE_TAG:-local}
+    expose:
+      - "8001"
     env_file:
       - path: ${AGENT_ENV_FILE:-../agent/.env}
         required: false

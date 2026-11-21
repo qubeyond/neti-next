@@ -9,13 +9,16 @@ from pathlib import Path
 from statistics import median
 from time import perf_counter, sleep
 
-from agent.baseline import ask
-from agent.config import AgentError, _local_settings, _positive_int, _setting
-from agent.search import make_searcher
-from agent.search_apis import _optional
-from agent.web_baseline import answer_from_search, json_object
+from agent.composition import answer_from_search
+from agent.modules.answers.domain.evidence import json_object
+from agent.modules.answers.infrastructure.routerai import ask
+from agent.modules.answers.infrastructure.search import make_searcher
+from agent.modules.answers.infrastructure.search_apis import _optional
+from agent.shared.config import _local_settings, _positive_int, _setting
+from agent.shared.errors import AgentError
 from evals.compare_search import EVAL_DIR, read_jsonl, score, search_once
 from evals.metrics import breakdown, case_outcome
+from evals.splits import select_split
 
 JUDGE_PROMPT = (
     "Ты оцениваешь ответ на вопрос. Входные данные включают вопрос, ответ, "
@@ -24,7 +27,8 @@ JUDGE_PROMPT = (
     "Для каждого обязательного факта по порядку присвой verdict: correct, missing или incorrect "
     "supported: есть ли проверенная цитата, которая подтверждает этот факт в ответе, "
     "и in_context: можно ли вывести этот факт из исходных фрагментов, независимо от ответа. "
-    "Считай, что факт есть в контексте, только если подтверждены условия и необходимые исходные числа. "
+    "Считай, что факт есть в контексте, только если подтверждены условия и "
+    "необходимые исходные числа. "
     "supported означает, что проверенные цитаты подтверждают все существенные утверждения "
     "ответа с учётом вуза, года, единиц и условий. Для расчёта цитаты могут подтверждать "
     "исходные числа, а не итог. Не считай ссылку или заголовок доказательством. "
@@ -38,21 +42,56 @@ def _elapsed(started: float) -> int:
     return round((perf_counter() - started) * 1000)
 
 
+def parse_judge_verdict(answer: str, expected_fact_count: int) -> dict:
+    error = "Невалидный ответ оценщика."
+    if not answer.strip():
+        return {"error": error, "failure_kind": "empty_answer"}
+    try:
+        result = json_object(answer)
+    except ValueError:
+        return {"error": error, "failure_kind": "invalid_json"}
+    except TypeError:
+        return {"error": error, "failure_kind": "invalid_json_object"}
+    if any(type(result.get(name)) is not bool for name in ("supported", "critical_error")):
+        return {"error": error, "failure_kind": "invalid_flags"}
+    facts = result.get("facts")
+    if not isinstance(facts, list):
+        return {"error": error, "failure_kind": "invalid_facts_type"}
+    if len(facts) != expected_fact_count:
+        return {
+            "error": error,
+            "failure_kind": "wrong_fact_count",
+            "expected_fact_count": expected_fact_count,
+            "actual_fact_count": len(facts),
+        }
+    if any(
+        not isinstance(fact, dict)
+        or fact.get("verdict") not in ("correct", "missing", "incorrect")
+        or type(fact.get("supported")) is not bool
+        or type(fact.get("in_context")) is not bool
+        for fact in facts
+    ):
+        return {"error": error, "failure_kind": "invalid_fact_fields"}
+    result["correct"] = all(fact["verdict"] == "correct" for fact in facts)
+    return result
+
+
 def grade(
     question: str,
     response: dict,
     key: dict,
     model: str | None = None,
     max_tokens: int | None = None,
+    *,
+    reasoning_enabled: bool | None = None,
+    response_format: dict | None = None,
 ) -> tuple[dict, dict]:
     payload = {
         "question": question,
         "answer": response["answer"],
         "required_facts": key["required_facts"],
         "error_to_avoid": key["critical_error"],
-        "verified_citations": [
-            item for item in response["citations"] if item["verified"]
-        ],
+        "verified_citations": [item for item in response["citations"] if item["verified"]],
         "search_fragments": response["sources"],
     }
     call = ask(
@@ -61,27 +100,10 @@ def grade(
         system_prompt=JUDGE_PROMPT,
         allow_empty=True,
         max_tokens=max_tokens,
+        reasoning_enabled=reasoning_enabled,
+        response_format=response_format,
     )
-    try:
-        result = json_object(call["answer"])
-        for name in ("supported", "critical_error"):
-            if type(result.get(name)) is not bool:
-                raise ValueError
-        facts = result.get("facts")
-        if not isinstance(facts, list) or len(facts) != len(key["required_facts"]):
-            raise ValueError
-        if any(
-            not isinstance(fact, dict)
-            or fact.get("verdict") not in ("correct", "missing", "incorrect")
-            or type(fact.get("supported")) is not bool
-            or type(fact.get("in_context")) is not bool
-            for fact in facts
-        ):
-            raise ValueError
-        result["correct"] = all(fact["verdict"] == "correct" for fact in facts)
-    except (ValueError, TypeError):
-        result = {"error": "Невалидный ответ оценщика."}
-    return result, call
+    return parse_judge_verdict(call["answer"], len(key["required_facts"])), call
 
 
 def answer_case(
@@ -91,6 +113,11 @@ def answer_case(
     use_judge: bool,
     judge_model: str | None = None,
     judge_max_tokens: int | None = None,
+    *,
+    reasoning_enabled: bool | None = None,
+    response_format: dict | None = None,
+    prompt_suffix: str = "",
+    preserve_relevant_clause: bool = True,
 ) -> dict:
     report = {
         "id": item["id"],
@@ -113,7 +140,12 @@ def answer_case(
                 row["snippet"].strip() for row in search_report["results"]
             )
         response = answer_from_search(
-            item["input"]["question"], search_report["results"]
+            item["input"]["question"],
+            search_report["results"],
+            reasoning_enabled=reasoning_enabled,
+            response_format=response_format,
+            prompt_suffix=prompt_suffix,
+            preserve_relevant_clause=preserve_relevant_clause,
         )
         report["generation_attempted"] = response["generation"] is not None
         report.update(response)
@@ -163,15 +195,12 @@ def usage_summary(reports: list[dict], stage: str) -> dict:
         reported = [
             item[usage_key][field]
             for item in usages
-            if isinstance(item.get(usage_key), dict)
-            and type(item[usage_key].get(field)) is int
+            if isinstance(item.get(usage_key), dict) and type(item[usage_key].get(field)) is int
         ]
         tokens[output] = sum(reported) if reported else None
         tokens[f"{output}_reported_requests"] = len(reported)
     costs = [
-        Decimal(str(item["cost"]))
-        for item in usages
-        if type(item.get("cost")) in (int, float)
+        Decimal(str(item["cost"])) for item in usages if type(item.get("cost")) in (int, float)
     ]
     return {
         "requests": len(calls),
@@ -180,9 +209,7 @@ def usage_summary(reports: list[dict], stage: str) -> dict:
         "reported_cost_rub": str(sum(costs)) if costs else None,
         "responses_with_cost": len(costs),
         "models": dict(Counter(call["model"] for call in calls if call)),
-        "finish_reasons": dict(
-            Counter(str(call["finish_reason"]) for call in calls if call)
-        ),
+        "finish_reasons": dict(Counter(str(call["finish_reason"]) for call in calls if call)),
         "latency_ms": distribution([call["latency_ms"] for call in calls if call]),
     }
 
@@ -191,14 +218,12 @@ def quality_summary(reports: list[dict]) -> dict:
     grades = [
         item["grade"]
         for item in reports
-        if item["status"] in {"answered", "partial"}
-        and "correct" in item.get("grade", {})
+        if item["status"] in {"answered", "partial"} and "correct" in item.get("grade", {})
     ]
     citations = [citation for item in reports for citation in item.get("citations", [])]
     invalid = sum(item.get("malformed_citations", 0) for item in reports)
     grade_attempts = sum(
-        item["judge_attempted"] and item["status"] in {"answered", "partial"}
-        for item in reports
+        item["judge_attempted"] and item["status"] in {"answered", "partial"} for item in reports
     )
     return {
         "cases": len(reports),
@@ -211,9 +236,7 @@ def quality_summary(reports: list[dict]) -> dict:
         "fully_supported": sum(result.get("supported") is True for result in grades)
         if grade_attempts
         else None,
-        "critical_errors": sum(
-            result.get("critical_error") is True for result in grades
-        )
+        "critical_errors": sum(result.get("critical_error") is True for result in grades)
         if grade_attempts
         else None,
         "strict_pass": sum(case_outcome(item) == "strict_pass" for item in reports)
@@ -239,6 +262,8 @@ def run(
     judge_model: str | None = None,
     judge_max_tokens: int | None = None,
     search_min_interval: float = 0,
+    provider: str = "exa",
+    preserve_relevant_clause: bool = True,
 ) -> dict:
     started = perf_counter()
     blocked = None
@@ -249,15 +274,9 @@ def run(
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for index, item in enumerate(questions, start=1):
             key = gold[item["id"]]
-            expected = list(
-                dict.fromkeys(evidence[ref]["url"] for ref in key["evidence_ids"])
-            )
+            expected = list(dict.fromkeys(evidence[ref]["url"] for ref in key["evidence_ids"]))
             if mode in {"oracle", "grounding"}:
-                refs = (
-                    key["evidence_ids"]
-                    if mode == "oracle"
-                    else key["provided_evidence_ids"]
-                )
+                refs = key["evidence_ids"] if mode == "oracle" else key["provided_evidence_ids"]
                 results = [
                     {
                         "title": evidence[ref]["locator"],
@@ -289,9 +308,7 @@ def run(
                 reused_count += 1
             else:
                 if last_search_at is not None and not blocked:
-                    sleep(
-                        max(0, search_min_interval - (perf_counter() - last_search_at))
-                    )
+                    sleep(max(0, search_min_interval - (perf_counter() - last_search_at)))
                 last_search_at = perf_counter()
                 search_report = score(
                     item["id"],
@@ -329,11 +346,10 @@ def run(
                         use_judge,
                         judge_model,
                         judge_max_tokens,
+                        preserve_relevant_clause=preserve_relevant_clause,
                     )
                 )
-        reports = [
-            item if isinstance(item, dict) else item.result() for item in pending
-        ]
+        reports = [item if isinstance(item, dict) else item.result() for item in pending]
     search_reports = [item["search"] for item in reports]
     completed = [item for item in search_reports if item["status"] in {"ok", "empty"}]
     generation = usage_summary(reports, "generation")
@@ -352,7 +368,7 @@ def run(
         "rubric": "fact-and-context-v2" if use_judge else None,
         "judge_max_tokens_override": judge_max_tokens if use_judge else None,
         "search": {
-            "provider": None if mode in {"oracle", "grounding"} else "firecrawl",
+            "provider": None if mode in {"oracle", "grounding"} else provider,
             "anonymous": anonymous,
             "limit": limit,
             "requests": len(live_search),
@@ -361,15 +377,16 @@ def run(
             "statuses": dict(Counter(item["status"] for item in search_reports)),
             "any_gold_url": sum(any(item["gold_urls"].values()) for item in completed),
             "all_gold_urls": sum(
-                bool(item["gold_urls"]) and all(item["gold_urls"].values())
-                for item in completed
+                bool(item["gold_urls"]) and all(item["gold_urls"].values()) for item in completed
             ),
             "latency_ms": distribution([item["latency_ms"] for item in completed]),
-            "estimated_credits_successful_requests": sum(
-                item["status"] in {"ok", "empty"} for item in live_search
-            )
-            * 2
-            * ceil(limit / 10),
+            "estimated_credits_successful_requests": (
+                sum(item["status"] in {"ok", "empty"} for item in live_search)
+                * 2
+                * ceil(limit / 10)
+                if provider == "firecrawl"
+                else None
+            ),
             "money_charged_for_keyless": 0 if anonymous or not live_search else None,
         },
         "generation": generation,
@@ -378,23 +395,18 @@ def run(
             "requests": sum(stage["requests"] for stage in stages),
             "reported_cost_rub": str(sum(costs)) if costs else None,
             "cost_complete": bool(stages)
-            and all(
-                stage["responses_with_cost"] == stage["requests"] for stage in stages
-            ),
+            and all(stage["responses_with_cost"] == stage["requests"] for stage in stages),
         },
         "quality": quality_summary(reports),
         "by_domain": {
-            domain: quality_summary(
-                [item for item in reports if item["domain"] == domain]
-            )
+            domain: quality_summary([item for item in reports if item["domain"] == domain])
             for domain in sorted({item["domain"] for item in reports})
         },
         "answer_latency_ms": distribution(
             [
                 item["answer_latency_ms"]
                 for item in reports
-                if "answer_latency_ms" in item
-                and item["status"] != "search_unavailable"
+                if "answer_latency_ms" in item and item["status"] != "search_unavailable"
             ]
         ),
         "runs": reports,
@@ -436,21 +448,27 @@ def measurements(reports: list[dict], limit: int, use_judge: bool) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Измерить веб-бейзлайн Firecrawl + RouterAI"
-    )
+    parser = argparse.ArgumentParser(description="Измерить веб-поиск и ответы RouterAI")
     parser.add_argument(
         "--mode", choices=("e2e", "retrieval", "oracle", "grounding"), default="e2e"
     )
+    parser.add_argument("--dataset", choices=("core", "extension", "expanded"), default="expanded")
+    parser.add_argument("--provider", choices=("firecrawl", "exa"), default="exa")
     parser.add_argument(
-        "--dataset", choices=("core", "extension", "expanded"), default="expanded"
+        "--context-mode",
+        choices=("prefix-with-evidence", "prefix"),
+        default="prefix-with-evidence",
+        help="Отбор короткой выдержки или историческая обрезка по длине",
     )
     parser.add_argument("--domain", action="append")
+    parser.add_argument("--institution", help="Точное имя единственного вуза в кейсе.")
     parser.add_argument("--skill", action="append")
     parser.add_argument("--case", action="append")
-    parser.add_argument(
-        "--judge-model", help="Модель оценивания, независимо от модели ответа"
-    )
+    parser.add_argument("--split-manifest", type=Path, help="Фиксированное разбиение eval")
+    split_options = parser.add_mutually_exclusive_group()
+    split_options.add_argument("--fold", type=int, help="Номер проверяемого фолда")
+    split_options.add_argument("--holdout-institution", help="Весь вуз в проверяемой части")
+    parser.add_argument("--judge-model", help="Модель оценивания, независимо от модели ответа")
     parser.add_argument(
         "--judge-max-tokens",
         type=int,
@@ -459,12 +477,8 @@ def main() -> None:
     parser.add_argument(
         "--report", type=Path, help="Пересчитать метрики сохранённого отчёта без API"
     )
-    parser.add_argument(
-        "--workers", type=int, default=4, help="Параллельные вызовы модели"
-    )
-    parser.add_argument(
-        "--no-judge", action="store_true", help="Без дополнительной оценки моделью"
-    )
+    parser.add_argument("--workers", type=int, default=4, help="Параллельные вызовы модели")
+    parser.add_argument("--no-judge", action="store_true", help="Без дополнительной оценки моделью")
     parser.add_argument(
         "--reuse-search",
         type=Path,
@@ -493,6 +507,20 @@ def main() -> None:
         parser.error("--fill-missing-search требует --reuse-search")
     if args.reuse_search and args.mode in {"oracle", "grounding"}:
         parser.error("Фиксированные контексты не используют предыдущую выдачу.")
+    has_split = args.fold is not None or args.holdout_institution is not None
+    if bool(args.split_manifest) != has_split:
+        parser.error("--split-manifest требует --fold или --holdout-institution.")
+    split = {}
+    if has_split:
+        if args.mode == "grounding" or any((args.case, args.domain, args.institution, args.skill)):
+            parser.error("Для фиксированного веб-среза нельзя дополнительно выбирать кейсы.")
+        try:
+            split = select_split(
+                args.split_manifest, args.dataset, args.fold, args.holdout_institution
+            )
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            parser.error(str(error))
+    test_ids = set(split.get("test", []))
     core_questions = read_jsonl(EVAL_DIR / "questions.jsonl")
     new_questions = read_jsonl(EVAL_DIR / "questions-extension.jsonl")
     dataset = (
@@ -507,9 +535,11 @@ def main() -> None:
         item
         for item in dataset
         if item["suite"] == suite
+        and (not args.institution or item["institutions"] == [args.institution])
         and (not args.domain or item["domain"] in args.domain)
         and (not args.skill or set(item["skills"]).intersection(args.skill))
         and (not args.case or item["id"] in args.case)
+        and (not has_split or item["id"] in test_ids)
     ]
     if not questions:
         parser.error("Нет вопросов с выбранными фильтрами.")
@@ -524,6 +554,19 @@ def main() -> None:
             ]
             if not rows:
                 raise ValueError
+            if has_split:
+                if len(rows) != len(test_ids) or {row["id"] for row in rows} != test_ids:
+                    parser.error("Для сравнения нужен отчёт со всеми вопросами фолда.")
+                previous_split = previous.get("split")
+                if (
+                    previous_split
+                    and previous_split.get("dataset_sha256") != split["dataset_sha256"]
+                ):
+                    parser.error("Отчёт относится к другой версии eval.")
+                if any(
+                    row["search"]["query"] != index[row["id"]]["input"]["question"] for row in rows
+                ):
+                    parser.error("Вопросы в отчёте отличаются от зафиксированного среза.")
             print(
                 json.dumps(
                     {
@@ -533,9 +576,8 @@ def main() -> None:
                         "rubric": previous.get(
                             "rubric", "legacy" if previous["llm_judge"] else None
                         ),
-                        **measurements(
-                            rows, previous["search"]["limit"], previous["llm_judge"]
-                        ),
+                        **({"split": split} if has_split else {}),
+                        **measurements(rows, previous["search"]["limit"], previous["llm_judge"]),
                     },
                     ensure_ascii=False,
                     indent=2,
@@ -549,10 +591,11 @@ def main() -> None:
         if args.mode != "retrieval":
             _setting(settings, "ROUTERAI_API_KEY")
         limit = _positive_int(settings, "SEARCH_MAX_RESULTS")
-        run_live = (
-            not args.reuse_search or args.fill_missing_search
-        ) and args.mode in {"e2e", "retrieval"}
-        search = make_searcher("firecrawl") if run_live else None
+        run_live = (not args.reuse_search or args.fill_missing_search) and args.mode in {
+            "e2e",
+            "retrieval",
+        }
+        search = make_searcher(args.provider) if run_live else None
     except AgentError as error:
         parser.exit(1, f"Ошибка: {error}\n")
     key = {
@@ -564,19 +607,17 @@ def main() -> None:
     }
     evidence = json.loads((EVAL_DIR / "gold/evidence.json").read_text(encoding="utf-8"))
     evidence.update(
-        json.loads(
-            (EVAL_DIR / "gold/evidence-extension.json").read_text(encoding="utf-8")
-        )
+        json.loads((EVAL_DIR / "gold/evidence-extension.json").read_text(encoding="utf-8"))
     )
     reused = None
-    anonymous = not _optional(settings, "FIRECRAWL_API_KEY")
+    anonymous = args.provider == "firecrawl" and not _optional(settings, "FIRECRAWL_API_KEY")
     if args.reuse_search:
         try:
             reused = {}
             original_limits = set()
             for path in args.reuse_search:
                 previous = json.loads(path.read_text(encoding="utf-8"))
-                if previous["search"]["provider"] != "firecrawl":
+                if previous["search"]["provider"] != args.provider:
                     raise ValueError
                 original_limits.add(previous["search"]["limit"])
                 reused.update(
@@ -594,34 +635,32 @@ def main() -> None:
             reused = {
                 item["id"]: reused[item["id"]]
                 for item in questions
-                if item["id"] in reused
-                and reused[item["id"]]["query"] == item["input"]["question"]
+                if item["id"] in reused and reused[item["id"]]["query"] == item["input"]["question"]
             }
             if not args.fill_missing_search and len(reused) != len(questions):
                 raise ValueError
         except (OSError, ValueError, KeyError, TypeError):
             parser.error("Не удалось сопоставить поиск из отчёта с текущими вопросами.")
-    print(
-        json.dumps(
-            run(
-                questions,
-                key,
-                evidence,
-                search,
-                workers=args.workers,
-                use_judge=not args.no_judge and args.mode in {"e2e", "oracle"},
-                anonymous=anonymous,
-                limit=limit,
-                reused_search=reused,
-                mode=args.mode,
-                judge_model=args.judge_model,
-                judge_max_tokens=args.judge_max_tokens,
-                search_min_interval=args.search_min_interval,
-            ),
-            ensure_ascii=False,
-            indent=2,
-        )
+    result = run(
+        questions,
+        key,
+        evidence,
+        search,
+        workers=args.workers,
+        use_judge=not args.no_judge and args.mode in {"e2e", "oracle"},
+        anonymous=anonymous,
+        limit=limit,
+        reused_search=reused,
+        mode=args.mode,
+        judge_model=args.judge_model,
+        judge_max_tokens=args.judge_max_tokens,
+        search_min_interval=args.search_min_interval,
+        provider=args.provider,
+        preserve_relevant_clause=args.context_mode == "prefix-with-evidence",
     )
+    if has_split:
+        result["split"] = split
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

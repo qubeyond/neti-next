@@ -97,9 +97,7 @@ def quality(report: dict) -> dict[str, str]:
     grades = [item["grade"] for item in answered if "correct" in item.get("grade", {})]
     facts = [fact for grade in grades for fact in grade.get("facts", [])]
     correct_facts = [fact for fact in facts if fact["verdict"] == "correct"]
-    context = [
-        item["grade"]["facts"] for item in rows if item.get("grade", {}).get("facts")
-    ]
+    context = [item["grade"]["facts"] for item in rows if item.get("grade", {}).get("facts")]
     context_facts = [fact for item in context for fact in item]
     result.update(
         {
@@ -116,9 +114,7 @@ def quality(report: dict) -> dict[str, str]:
             "Conditional Answer Accuracy": fraction(
                 sum(grade["correct"] for grade in grades), len(grades)
             ),
-            "Fact Recall (в оценённых ответах)": fraction(
-                len(correct_facts), len(facts)
-            ),
+            "Fact Recall (в оценённых ответах)": fraction(len(correct_facts), len(facts)),
             "Fact Support Rate (среди верных фактов)": fraction(
                 sum(fact["supported"] for fact in correct_facts), len(correct_facts)
             ),
@@ -137,15 +133,9 @@ def quality(report: dict) -> dict[str, str]:
 
 
 def usage(report: dict, stage: str) -> tuple:
-    calls = [
-        item.get(stage) for item in report["runs"] if item.get(f"{stage}_attempted")
-    ]
+    calls = [item.get(stage) for item in report["runs"] if item.get(f"{stage}_attempted")]
     entries = [call["usage"] for call in calls if call and call.get("usage")]
-    cost = [
-        Decimal(str(entry["cost"]))
-        for entry in entries
-        if entry.get("cost") is not None
-    ]
+    cost = [Decimal(str(entry["cost"])) for entry in entries if entry.get("cost") is not None]
     totals = []
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         numbers = [entry[key] for entry in entries if type(entry.get(key)) is int]
@@ -188,12 +178,8 @@ def run_metrics(report: dict) -> dict[str, str | int]:
         "Пустая выдача": statuses.get("empty", 0) if provider else MISSING,
         "Блокировки поиска": statuses.get("blocked", 0) if provider else MISSING,
         "Ошибки поиска": statuses.get("error", 0) if provider else MISSING,
-        "Кейсы без запроса после блокировки": statuses.get("skipped", 0)
-        if provider
-        else MISSING,
-        "Обрезано ответов модели": truncated
-        if report["mode"] != "retrieval"
-        else MISSING,
+        "Кейсы без запроса после блокировки": statuses.get("skipped", 0) if provider else MISSING,
+        "Обрезано ответов модели": truncated if report["mode"] != "retrieval" else MISSING,
         "Валидных оценок / попыток": fraction(valid_grades, grade_attempts),
     }
 
@@ -201,39 +187,98 @@ def run_metrics(report: dict) -> dict[str, str | int]:
 def mode_table(names, values: dict) -> str:
     return table(
         ("Метрика", *MODES),
-        [
-            (name, *(values.get(mode, {}).get(name, MISSING) for mode in MODES))
-            for name in names
-        ],
+        [(name, *(values.get(mode, {}).get(name, MISSING) for mode in MODES)) for name in names],
     )
 
 
+def robustness_table(report: dict) -> str:
+    kinds = report["by_kind"]
+    channels = report["attacks_by_channel"]
+    repeated = report["repeat_stability"]
+    rows = [
+        ("Кейсов с живым замером", len({row["id"] for row in report["runs"]})),
+        (
+            "Уточнения без поддержки интерфейса",
+            len(report["clarification_unsupported"]),
+        ),
+        (
+            "Согласованность статуса между повторами",
+            fraction(repeated["same_status"], repeated["eligible_cases"]),
+        ),
+        (
+            "Согласованность исхода между повторами",
+            fraction(repeated["same_evaluated_outcome"], repeated["eligible_cases"]),
+        ),
+    ]
+    probe_outcomes = Counter(row["outcome"] for row in report["runs"] if row["variant"] == "probe")
+    for outcome, label in (
+        ("invalid", "Невалидные ответы на пробах"),
+        ("generation_error", "Сбои генерации на пробах"),
+        ("judge_failed", "Сбои оценщика на пробах"),
+    ):
+        rows.append((label, probe_outcomes[outcome]))
+    for kind, label in (
+        (
+            "paraphrase",
+            "Paraphrase Utility Retention (сохранение зачёта после перефраза)",
+        ),
+        (
+            "prompt-injection",
+            "Injection Utility Retention (сохранение зачёта при инъекции)",
+        ),
+    ):
+        if row := kinds.get(kind):
+            rows.append((label, fraction(row["retained_strict_pass"], row["clean_strict_pass"])))
+    for kind, outcome, label in (
+        (
+            "false-premise",
+            "strict_pass",
+            "False Premise Correction Rate (исправление предпосылки)",
+        ),
+        ("scope-trap", "safe_abstention", "Safe Abstention Rate (строгий отказ)"),
+        ("scope-trap", "false_answer", "Unsafe Answer Rate (ложный ответ на ловушку)"),
+    ):
+        if row := kinds.get(kind):
+            rows.append((label, fraction(row["outcomes"].get(outcome, 0), row["attempts"])))
+    if (scope := kinds.get("scope-trap")) and "semantic_abstentions" in scope:
+        rows.append(
+            (
+                "Semantic Abstention Rate (корректный отказ по смыслу)",
+                fraction(scope["semantic_abstentions"], scope["attempts"]),
+            )
+        )
+    for channel, data in sorted(channels.items()):
+        rows.append(
+            (
+                f"Attack Marker Rate · {channel}",
+                fraction(data["marker_seen"], data["trials_with_output"]),
+            )
+        )
+    return table(("Метрика", "Значение"), rows)
+
+
 def render(
-    reports: dict, version: str, measured_on: date, dataset: str, answer_tokens: int
+    reports: dict,
+    version: str,
+    measured_on: date,
+    dataset: str,
+    answer_tokens: int,
+    *,
+    robustness: dict | None = None,
 ) -> str:
     e2e = reports["e2e"]
     limit = e2e["search"]["limit"]
     modes = {mode: run_metrics(report) for mode, report in reports.items()}
     measured = {mode: quality(report) for mode, report in reports.items()}
     limits = sorted(
-        {
-            report["search"]["limit"]
-            for report in reports.values()
-            if report["search"]["provider"]
-        }
+        {report["search"]["limit"] for report in reports.values() if report["search"]["provider"]}
     )
     ranking_labels = ("Hit Rate", "Recall", "Complete Retrieval Rate", "MRR", "nDCG")
     names = [f"{label}@{k}" for k in limits for label in ranking_labels]
     stage_names = {"generation": "Генерация", "judge": "Оценщик"}
     models = {
         stage: ", ".join(
-            sorted(
-                {
-                    name
-                    for report in reports.values()
-                    for name in report[stage]["models"]
-                }
-            )
+            sorted({name for report in reports.values() for name in report[stage]["models"]})
         )
         or MISSING
         for stage in stage_names
@@ -283,8 +328,7 @@ def render(
     oracle = {}
     if e2e["llm_judge"] and reports.get("oracle", {}).get("llm_judge"):
         oracle = {
-            row["id"]: case_outcome(row) == "strict_pass"
-            for row in reports["oracle"]["runs"]
+            row["id"]: case_outcome(row) == "strict_pass" for row in reports["oracle"]["runs"]
         }
         paired = Counter(
             (case_outcome(row) == "strict_pass", oracle[row["id"]])
@@ -374,6 +418,9 @@ def render(
             ),
         )
 
+    if robustness is not None:
+        add("Устойчивость", robustness_table(robustness))
+
     timings = {
         mode: {
             "Время прогона, с": seconds(report["wall_latency_ms"]),
@@ -404,13 +451,20 @@ def render(
         for stage, label in stage_names.items()
         if any(row.get(f"{stage}_attempted") for row in report["runs"])
     ]
+    if robustness is not None:
+        calls.extend(
+            ("robustness", label, *usage(robustness, stage))
+            for stage, label in stage_names.items()
+            if any(row.get(f"{stage}_attempted") for row in robustness["runs"])
+        )
     add("Вызовы RouterAI", table(cost_headers, calls))
     cost_totals = []
-    for mode in reports:
+    cost_reports = reports if robustness is None else {**reports, "robustness": robustness}
+    for mode, report in cost_reports.items():
         costs = [
-            Decimal(report["reported_cost_rub"])
-            for report in (reports[mode]["generation"], reports[mode]["judge"])
-            if report["reported_cost_rub"] is not None
+            Decimal(stage["reported_cost_rub"])
+            for stage in (report["generation"], report["judge"])
+            if stage["reported_cost_rub"] is not None
         ]
         if costs:
             cost_totals.append((mode, format(sum(costs).normalize(), "f")))
@@ -452,6 +506,7 @@ def main() -> None:
     parser.add_argument("--date", required=True, type=date.fromisoformat)
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--answer-tokens", required=True, type=int)
+    parser.add_argument("--robustness", type=Path, help="JSON из run_robustness.")
     args = parser.parse_args()
     try:
         reports = {}
@@ -466,12 +521,19 @@ def main() -> None:
                 or len(ids) != len(report["runs"])
                 or len(ids) != report["cases"]
             ):
-                raise ValueError(
-                    f"{path.name}: режим, ID или число кейсов не совпадают"
-                )
+                raise ValueError(f"{path.name}: режим, ID или число кейсов не совпадают")
             reports[mode] = report
         print(
-            render(reports, args.version, args.date, args.dataset, args.answer_tokens),
+            render(
+                reports,
+                args.version,
+                args.date,
+                args.dataset,
+                args.answer_tokens,
+                robustness=json.loads(args.robustness.read_text(encoding="utf-8"))
+                if args.robustness
+                else None,
+            ),
             end="",
         )
     except (OSError, KeyError, TypeError, ValueError) as error:

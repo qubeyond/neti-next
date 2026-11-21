@@ -6,9 +6,18 @@ from statistics import median
 from time import perf_counter
 from urllib.parse import parse_qsl, urlsplit
 
-from agent.config import AgentError, _local_settings, _positive_int, _setting
-from agent.search import PROVIDERS, SearchBlocked, make_searcher
-from agent.search_apis import ALTERNATIVES, ATTRIBUTION, missing_setting
+from agent.modules.answers.infrastructure.search import (
+    PROVIDERS,
+    SearchBlocked,
+    make_searcher,
+)
+from agent.modules.answers.infrastructure.search_apis import (
+    ALTERNATIVES,
+    ATTRIBUTION,
+    missing_setting,
+)
+from agent.shared.config import _local_settings, _positive_int, _setting
+from agent.shared.errors import AgentError
 
 EVAL_DIR = Path(__file__).resolve().parent
 PILOT_IDS = {
@@ -52,9 +61,7 @@ QUERY_NOISE = {
 
 def read_jsonl(path: Path) -> list[dict]:
     return [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
 
 
@@ -80,10 +87,7 @@ def url_key(url: str) -> tuple | None:
 
 def compact_query(query: str) -> str:
     words = re.findall(r"[\w]+(?:[-/][\w]+)*", query)
-    return (
-        " ".join(word for word in words if word.casefold() not in QUERY_NOISE).strip()
-        or query
-    )
+    return " ".join(word for word in words if word.casefold() not in QUERY_NOISE).strip() or query
 
 
 def fuse(first: list, second: list, limit: int) -> list:
@@ -98,9 +102,7 @@ def fuse(first: list, second: list, limit: int) -> list:
             seen.add(key)
             candidates.setdefault(key, result)
             scores[key] = scores.get(key, 0) + 1 / (60 + rank)
-    return [
-        candidates[key] for key in sorted(scores, key=scores.get, reverse=True)[:limit]
-    ]
+    return [candidates[key] for key in sorted(scores, key=scores.get, reverse=True)[:limit]]
 
 
 def search_once(search, query: str, blocked_reason: str | None) -> dict:
@@ -148,23 +150,17 @@ def summarize(runs: dict) -> dict:
         summary[provider] = {
             "cases": len(cases),
             "comparable_cases": len(usable),
-            "any_gold_url_found": sum(
-                any(item["gold_urls"].values()) for item in usable
-            )
+            "any_gold_url_found": sum(any(item["gold_urls"].values()) for item in usable)
             if usable
             else None,
-            "all_gold_urls_found": sum(
-                all(item["gold_urls"].values()) for item in usable
-            )
+            "all_gold_urls_found": sum(all(item["gold_urls"].values()) for item in usable)
             if usable
             else None,
             "empty": sum(item["status"] == "empty" for item in cases),
             "errors": sum(item["status"] == "error" for item in cases),
             "blocked": sum(item["status"] == "blocked" for item in cases),
             "skipped": sum(item["status"] == "skipped" for item in cases),
-            "median_latency_ms": median(item["latency_ms"] for item in usable)
-            if usable
-            else None,
+            "median_latency_ms": median(item["latency_ms"] for item in usable) if usable else None,
         }
     return summary
 
@@ -193,8 +189,7 @@ def compare(
         query = item["input"]["question"]
         expected = list(
             dict.fromkeys(
-                evidence[evidence_id]["url"]
-                for evidence_id in gold[case_id]["evidence_ids"]
+                evidence[evidence_id]["url"] for evidence_id in gold[case_id]["evidence_ids"]
             )
         )
         for provider, search in searchers.items():
@@ -214,11 +209,7 @@ def compare(
                         "ok"
                         if results
                         else next(
-                            (
-                                run["status"]
-                                for run in (second, first)
-                                if run["status"] != "empty"
-                            ),
+                            (run["status"] for run in (second, first) if run["status"] != "empty"),
                             "empty",
                         )
                     )
@@ -242,12 +233,8 @@ def compare(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Сравнить поисковики без вызова модели"
-    )
-    parser.add_argument(
-        "--all", action="store_true", help="Все веб-кейсы вместо десяти пилотных"
-    )
+    parser = argparse.ArgumentParser(description="Сравнить поисковики без вызова модели")
+    parser.add_argument("--all", action="store_true", help="Все веб-кейсы вместо десяти пилотных")
     parser.add_argument(
         "--enhanced",
         action="store_true",
@@ -265,9 +252,7 @@ def main() -> None:
         action="store_true",
         help="Все доступные варианты без Tavily и DuckDuckGo",
     )
-    parser.add_argument(
-        "--repeat", type=int, default=1, help="Количество прогонов (1–5)"
-    )
+    parser.add_argument("--repeat", type=int, default=1, help="Количество прогонов (1–5)")
     args = parser.parse_args()
     if not 1 <= args.repeat <= 5:
         parser.error("--repeat должен быть от 1 до 5")
@@ -299,9 +284,7 @@ def main() -> None:
     if args.alternatives:
         report["not_configured"] = missing
     attribution = {
-        provider: ATTRIBUTION[provider]
-        for provider in searchers
-        if provider in ATTRIBUTION
+        provider: ATTRIBUTION[provider] for provider in searchers if provider in ATTRIBUTION
     }
     if attribution:
         report["attribution"] = attribution
