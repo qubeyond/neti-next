@@ -11,6 +11,7 @@ import { WarningIcon } from '@phosphor-icons/react/dist/icons/Warning'
 import { WrenchIcon } from '@phosphor-icons/react/dist/icons/Wrench'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorText, safeURL, type Artifact, type FileItem, type Message, type Session } from './api'
+import { AsciiPigeon } from './pigeon-ascii'
 import { BrandMark, displayDuration } from './ui'
 
 const MarkdownContent = lazy(() => import('./markdown-content'))
@@ -120,15 +121,17 @@ type Props = {
   chat: string
   session: Session
   latest: boolean
+  mascot: boolean
   animate: boolean
   onQuote: (text: string, question: boolean) => void
   onRetry: () => void
 }
 
-export function ChatMessage({ item, chat, session, latest, animate, onQuote, onRetry }: Props) {
+export function ChatMessage({ item, chat, session, latest, mascot, animate, onQuote, onRetry }: Props) {
   const body = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const [copyState, setCopyState] = useState('')
+  const [typing, setTyping] = useState(false)
   const assistant = item.role === 'assistant'
 
   const selectText = useCallback(() => {
@@ -161,10 +164,10 @@ export function ChatMessage({ item, chat, session, latest, animate, onQuote, onR
     </div>}
   </article>
 
-  return <article className="assistant-message" aria-label="Ответ NETI Next">
-    <BrandMark className="message-mark"/>
-    <div className={'assistant-content' + (animate && item.state === 'complete' ? ' reveal' : '')}>
-      <header className="message-heading"><strong>NETI Next</strong></header>
+  return <article className={'assistant-message' + (mascot ? ' with-mascot' : '')} aria-label="Ответ Пигеона">
+    {mascot ? <div className="assistant-mascot"><AsciiPigeon speaking={typing}/></div> : <BrandMark className="message-mark"/>}
+    <div className={'assistant-content' + (item.state === 'complete' ? ' speech-bubble' : '') + (animate && item.state === 'complete' ? ' reveal' : '')}>
+      <header className="message-heading"><strong>Пигеон</strong></header>
       {!!item.activity?.length && <RunActivity item={item}/>}
       {item.state === 'working' && <div className="thinking-shimmer" aria-hidden="true"><span/><span/></div>}
       {item.state === 'failed' && <div className="answer-error">
@@ -174,7 +177,7 @@ export function ChatMessage({ item, chat, session, latest, animate, onQuote, onR
       {item.state === 'complete' && <>
         {item.status !== 'answered' && <span className="answer-status">{item.status === 'partial' ? 'Частичный ответ' : 'Недостаточно подтверждений'}</span>}
         <div ref={body} className="markdown" onMouseUp={selectText} onKeyUp={selectText}>
-          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text}/></Suspense>
+          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text} animate={animate} onTyping={setTyping}/></Suspense>
         </div>
         {!!item.artifacts?.length && <div className="artifact-grid">{item.artifacts.map((artifact, index) => <ArtifactCard item={artifact} key={index}/>)}</div>}
         {!!item.citations?.length && <section className="source-list" aria-label="Источники ответа">

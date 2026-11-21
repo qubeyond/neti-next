@@ -30,7 +30,7 @@ probe() (
   "${stack[@]}" up --build -d --wait --wait-timeout 90
   port=$("${stack[@]}" port frontend 8080)
   address="http://$port"
-  curl --fail --silent --show-error "$address/" | grep -F '<title>NETI Next</title>'
+  curl --fail --silent --show-error "$address/" | grep -F '<title>Пигеон</title>'
   curl --fail --silent --show-error "$address/api/health" | grep -F '{"status":"ok"}'
   local guest headers
   guest=$(curl --fail --silent --show-error -X POST "$address/api/v1/auth/guest" \
