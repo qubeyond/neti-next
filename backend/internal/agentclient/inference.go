@@ -1,4 +1,4 @@
-package main
+package agentclient
 
 import (
 	"bytes"
@@ -8,6 +8,11 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/qubeyond/neti-next/backend/internal/apperr"
+	"github.com/qubeyond/neti-next/backend/internal/chat"
+	"github.com/qubeyond/neti-next/backend/internal/httpapi"
+	"github.com/qubeyond/neti-next/backend/internal/identity"
 )
 
 type inferenceClient struct {
@@ -19,29 +24,29 @@ type inferenceClient struct {
 }
 
 type recognition struct {
-	Text      string     `json:"text"`
-	Truncated bool       `json:"truncated"`
-	Model     string     `json:"model"`
-	Latency   *int       `json:"latency_ms"`
-	Usage     *demoUsage `json:"usage"`
+	Text      string      `json:"text"`
+	Truncated bool        `json:"truncated"`
+	Model     string      `json:"model"`
+	Latency   *int        `json:"latency_ms"`
+	Usage     *TraceUsage `json:"usage"`
 }
 
-func (service inferenceClient) recognize(ctx context.Context, media attachment, data []byte) (output recognition, failure error) {
+func (service inferenceClient) recognize(ctx context.Context, media chat.Attachment, data []byte) (output recognition, failure error) {
 	action := "ocr"
 	if strings.HasPrefix(media.MIME, "audio/") {
 		action = "transcribe"
 	}
-	if emit, ok := ctx.Value(demoMediaKey{}).(func(demoEvent) error); ok {
-		id, start := randomID(), time.Now()
-		_ = emit(demoEvent{Type: "span_start", ID: id, Parent: "media", Service: "inference", Operation: action})
+	if emit, ok := ctx.Value(demoMediaKey{}).(func(TraceEvent) error); ok {
+		id, start := identity.NewID(), time.Now()
+		_ = emit(TraceEvent{Type: "span_start", ID: id, Parent: "media", Service: "inference", Operation: action})
 		defer func() {
 			duration := int(time.Since(start).Milliseconds())
 			outcome, status := "ok", 0
 			if failure != nil {
 				outcome = "error"
-				status = safeFailure(failure, "").code
+				status = httpapi.SafeFailure(failure, "").Code
 			}
-			_ = emit(demoEvent{Type: "span_end", ID: id, Duration: &duration, Outcome: outcome, Status: status,
+			_ = emit(TraceEvent{Type: "span_end", ID: id, Duration: &duration, Outcome: outcome, Status: status,
 				Model: output.Model, Upstream: output.Latency, Usage: output.Usage})
 		}()
 	}
@@ -55,10 +60,10 @@ func (service inferenceClient) recognize(ctx context.Context, media attachment, 
 	address := strings.TrimRight(service.base, "/") + "/inference/v1/" + action
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, address, bytes.NewReader(body))
 	if err != nil {
-		return output, problem(503, "Адрес инференса настроен неверно.")
+		return output, apperr.HTTP(503, "Адрес инференса настроен неверно.")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	propagate(ctx, request)
+	httpapi.Propagate(ctx, request)
 	if service.token != "" {
 		request.Header.Set("Authorization", "Bearer "+service.token)
 	}
@@ -67,23 +72,23 @@ func (service inferenceClient) recognize(ctx context.Context, media attachment, 
 		if ctx.Err() != nil {
 			return output, ctx.Err()
 		}
-		return output, problem(502, "Не удалось подключиться к сервису распознавания.")
+		return output, apperr.HTTP(502, "Не удалось подключиться к сервису распознавания.")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return output, upstreamFailure(response.StatusCode, "Сервис распознавания")
+		return output, httpapi.UpstreamFailure(response.StatusCode, "Сервис распознавания")
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&output); err != nil {
-		return recognition{}, problem(502, "Сервис распознавания вернул неверный результат.")
+		return recognition{}, apperr.HTTP(502, "Сервис распознавания вернул неверный результат.")
 	}
 	output.Text = strings.TrimSpace(output.Text)
 	if output.Text == "" {
-		return output, problem(422, "Во вложении не удалось разобрать речь или текст.")
+		return output, apperr.HTTP(422, "Во вложении не удалось разобрать речь или текст.")
 	}
 	return output, nil
 }
 
-func supportedMedia(mime string) bool {
+func SupportedMedia(mime string) bool {
 	switch mime {
 	case "audio/webm", "audio/ogg", "audio/wav", "audio/wave", "audio/x-wav", "audio/mpeg", "audio/mp4", "audio/flac",
 		"image/jpeg", "image/png", "image/webp", "application/pdf":
@@ -98,13 +103,13 @@ type recognizedImage struct {
 	data []byte
 }
 
-func (service inferenceClient) prepare(ctx context.Context, input agentRequest, report func(activity)) (string, []artifact, *recognizedImage, error) {
+func (service inferenceClient) prepare(ctx context.Context, input chat.AgentRequest, report func(chat.Activity)) (string, []chat.Artifact, *recognizedImage, error) {
 	var voice, images []string
-	var files []artifact
+	var files []chat.Artifact
 	var image *recognizedImage
 	for _, file := range input.Message.Attachments {
-		if !supportedMedia(file.MIME) {
-			files = append(files, artifact{Kind: "quote", Title: file.Name, Text: "Этот формат пока недоступен для распознавания."})
+		if !SupportedMedia(file.MIME) {
+			files = append(files, chat.Artifact{Kind: "quote", Title: file.Name, Text: "Этот формат пока недоступен для распознавания."})
 			continue
 		}
 		if file.MIME == "audio/wave" || file.MIME == "audio/x-wav" {
@@ -112,9 +117,9 @@ func (service inferenceClient) prepare(ctx context.Context, input agentRequest, 
 		}
 		data, err := input.ReadAttachment(file.ID)
 		if err != nil {
-			return "", nil, nil, problem(404, "Не удалось прочитать вложение диалога.")
+			return "", nil, nil, apperr.HTTP(404, "Не удалось прочитать вложение диалога.")
 		}
-		report(activity{Kind: "inference", Label: "Распознаём вложение"})
+		report(chat.Activity{Kind: "inference", Label: "Распознаём вложение"})
 		recognize := service.recognize
 		if strings.HasPrefix(file.MIME, "audio/") && service.audioLimit > 0 {
 			if err := probeAudio(ctx, data, service.audioLimit); err != nil {
@@ -142,7 +147,7 @@ func (service inferenceClient) prepare(ctx context.Context, input agentRequest, 
 		if result.Truncated {
 			title += " (первые страницы)"
 		}
-		files = append(files, artifact{Kind: "quote", Title: title, Text: string([]rune(result.Text)[:min(len([]rune(result.Text)), 6000)])})
+		files = append(files, chat.Artifact{Kind: "quote", Title: title, Text: string([]rune(result.Text)[:min(len([]rune(result.Text)), 6000)])})
 	}
 	if input.Message.Text == "" && len(voice) > 0 {
 		return strings.Join(voice, "\n"), files, nil, nil

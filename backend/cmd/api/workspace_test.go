@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,30 +20,38 @@ import (
 
 	"github.com/gorilla/websocket"
 	bolt "go.etcd.io/bbolt"
+
+	accounts "github.com/qubeyond/neti-next/backend/internal/account"
+	"github.com/qubeyond/neti-next/backend/internal/agentclient"
+	"github.com/qubeyond/neti-next/backend/internal/chat"
+	"github.com/qubeyond/neti-next/backend/internal/events"
+	"github.com/qubeyond/neti-next/backend/internal/httpapi"
+	"github.com/qubeyond/neti-next/backend/internal/identity"
+	"github.com/qubeyond/neti-next/backend/internal/storage"
 )
 
 type recordingAgent struct {
-	requests chan agentRequest
+	requests chan chat.AgentRequest
 }
 
-func (runner recordingAgent) answer(_ context.Context, input agentRequest, report func(activity)) (agentAnswer, error) {
+func (runner recordingAgent) Answer(_ context.Context, input chat.AgentRequest, report func(chat.Activity)) (chat.AgentAnswer, error) {
 	if len(input.Message.Attachments) > 0 {
 		data, err := input.ReadAttachment(input.Message.Attachments[0].ID)
 		if err != nil || string(data) != "Тестовое вложение" {
-			return agentAnswer{}, fmt.Errorf("Не удалось прочитать вложение: %v", err)
+			return chat.AgentAnswer{}, fmt.Errorf("Не удалось прочитать вложение: %v", err)
 		}
 	}
 	runner.requests <- input
-	report(activity{Kind: "tool", Label: "Поиск по материалам"})
-	return agentAnswer{Status: "answered", Answer: "**Ответ**", Citations: []citation{{URL: "https://example.org", Quote: "Цитата"}},
-		Artifacts: []artifact{{Kind: "link", Title: "Материал", URL: "https://example.org"}}}, nil
+	report(chat.Activity{Kind: "tool", Label: "Поиск по материалам"})
+	return chat.AgentAnswer{Status: "answered", Answer: "**Ответ**", Citations: []chat.Citation{{URL: "https://example.org", Quote: "Цитата"}},
+		Artifacts: []chat.Artifact{{Kind: "link", Title: "Материал", URL: "https://example.org"}}}, nil
 }
 
-func (runner recordingAgent) trace(_ context.Context, _ agentRequest, emit func(demoEvent) error) error {
-	if err := emit(demoEvent{Type: "span_start", ID: "fixture", Parent: "agent", Service: "web", Operation: "search"}); err != nil {
+func (runner recordingAgent) Trace(_ context.Context, _ chat.AgentRequest, emit func(agentclient.TraceEvent) error) error {
+	if err := emit(agentclient.TraceEvent{Type: "span_start", ID: "fixture", Parent: "agent", Service: "web", Operation: "search"}); err != nil {
 		return err
 	}
-	return emit(demoEvent{Type: "answer", Answer: &agentAnswer{Status: "answered", Answer: "Демо"}})
+	return emit(agentclient.TraceEvent{Type: "answer", Answer: &chat.AgentAnswer{Status: "answered", Answer: "Демо"}})
 }
 
 type testBrowser struct {
@@ -101,16 +111,16 @@ func (b testBrowser) headers(request *http.Request) {
 
 func (b testBrowser) create() string {
 	b.Helper()
-	var item chatSummary
+	var item chat.Summary
 	b.call("POST", "/chats", 201, nil, &item)
 	return "/chats/" + item.ID
 }
 
-func (b testBrowser) completed(route string) chat {
+func (b testBrowser) completed(route string) chat.Chat {
 	b.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		var item chat
+		var item chat.Chat
 		b.call("GET", route, 200, nil, &item)
 		if len(item.Messages) > 0 && item.Messages[len(item.Messages)-1].State != "working" {
 			return item
@@ -118,10 +128,10 @@ func (b testBrowser) completed(route string) chat {
 		time.Sleep(time.Millisecond * 10)
 	}
 	b.Fatal("Ассистент не завершил запрос.")
-	return chat{}
+	return chat.Chat{}
 }
 
-func (b testBrowser) upload(route string) attachment {
+func (b testBrowser) upload(route string) chat.Attachment {
 	b.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -145,7 +155,7 @@ func (b testBrowser) upload(route string) attachment {
 	if response.StatusCode != 201 {
 		b.Fatal(response.StatusCode)
 	}
-	var item attachment
+	var item chat.Attachment
 	if err := json.NewDecoder(response.Body).Decode(&item); err != nil {
 		b.Fatal(err)
 	}
@@ -154,7 +164,7 @@ func (b testBrowser) upload(route string) attachment {
 
 func legacyWorkspace(t *testing.T, filename string) (string, string, string) {
 	t.Helper()
-	accountID, token, fileID := randomID(), randomID(), randomID()
+	accountID, token, fileID := identity.NewID(), identity.NewID(), identity.NewID()
 	db, err := bolt.Open(filename, 0600, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -169,9 +179,12 @@ func legacyWorkspace(t *testing.T, filename string) (string, string, string) {
 		if err != nil {
 			return err
 		}
-		state := workspace{
-			Profile: profile{ID: accountID, Email: "migrated@example.org", Name: "Импорт", Instructions: "текст\u0000из BoltDB"},
-			Chats:   map[string]*storedChat{"chat": {chat: chat{Messages: []message{{State: "working"}}}}},
+		state := struct {
+			Profile accounts.Profile            `json:"profile"`
+			Chats   map[string]*chat.StoredChat `json:"chats"`
+		}{
+			Profile: accounts.Profile{ID: accountID, Email: "migrated@example.org", Name: "Импорт", Instructions: "текст\u0000из BoltDB"},
+			Chats:   map[string]*chat.StoredChat{"chat": {Chat: chat.Chat{Messages: []chat.Message{{State: "working"}}}}},
 		}
 		raw, err := json.Marshal(state)
 		if err != nil {
@@ -230,22 +243,22 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "workspace.db")
 	migratedID, migratedToken, migratedFile := legacyWorkspace(t, filename)
 	setLegacyOrphan(t, filename, true)
-	if unsuccessful, err := newStore(dsn, filename); err == nil {
-		unsuccessful.db.Close()
+	if unsuccessful, err := storage.Open(dsn, filename); err == nil {
+		unsuccessful.Close()
 		t.Fatal("Импорт с отсутствующим владельцем должен отмениться полностью")
 	}
 	setLegacyOrphan(t, filename, false)
-	db, err := newStore(dsn, filename)
+	db, err := storage.Open(dsn, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := db.authenticate(migratedToken, false)
-	if err != nil || migrated.owner != migratedID {
+	migrated, err := db.Authenticate(migratedToken, false)
+	if err != nil || migrated.Owner != migratedID {
 		t.Fatalf("Сессия импорта: %+v, %v", migrated, err)
 	}
-	err = db.access(migrated, false, func(state *workspace, storage blobs) error {
-		data, err := storage.get(migratedFile)
-		if err != nil || string(data) != "Старое вложение" || state.Profile.Instructions != "текст\u0000из BoltDB" ||
+	err = db.ViewChats(migrated, func(state *chat.State, files chat.Blobs) error {
+		data, err := files.Get(migratedFile)
+		if err != nil || string(data) != "Старое вложение" || state.Instructions != "текст\u0000из BoltDB" ||
 			state.Chats["chat"].Messages[0].State != "failed" {
 			t.Fatalf("Импорт профиля, чата или вложения: %v", err)
 		}
@@ -254,14 +267,14 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := recordingAgent{requests: make(chan agentRequest, 4)}
-	service := httptest.NewServer(newServer(db, runner, false).routes())
+	runner := recordingAgent{requests: make(chan chat.AgentRequest, 4)}
+	service := httptest.NewServer(routes(db, runner, false))
 	defer service.Close()
-	defer db.db.Close()
+	defer db.Close()
 	base := service.URL + "/api/v1"
 	account := newBrowser(t, base)
 	other := newBrowser(t, base)
-	var demo profile
+	var demo accounts.Profile
 	account.call("POST", "/auth/register", 201, credentials{Name: "Лена", Email: "lena@example.org", Password: "password123"}, &demo)
 	other.call("POST", "/auth/register", 201, credentials{Name: "Илья", Email: "ilya@example.org", Password: "password123"}, nil)
 	t.Setenv("BACKEND_DEMO_ACCOUNT_ID", demo.ID)
@@ -274,7 +287,7 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	}
 	stream := json.NewDecoder(response.Body)
 	for _, eventType := range []string{"span_start", "span_start", "span_end", "answer"} {
-		var event demoEvent
+		var event agentclient.TraceEvent
 		if err := stream.Decode(&event); err != nil || event.Type != eventType || event.RequestID == "" {
 			response.Body.Close()
 			t.Fatalf("Событие %s: %+v (%v)", eventType, event, err)
@@ -292,7 +305,7 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	other.call("GET", first, 404, nil, nil)
 	other.call("GET", first+"/files/"+file.ID, 404, nil, nil)
 	account.call("GET", first+"/files/"+file.ID, 200, nil, nil)
-	account.call("POST", second+"/messages", 422, sendInput{RequestID: randomID(), Text: "Другой диалог", FileIDs: []string{file.ID}}, nil)
+	account.call("POST", second+"/messages", 422, chat.SendInput{RequestID: identity.NewID(), Text: "Другой диалог", FileIDs: []string{file.ID}}, nil)
 
 	guest := newBrowser(t, base)
 	var guestSession struct{ Token string }
@@ -308,17 +321,17 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 		t.Fatalf("WebSocket: %v (%v)", err, response)
 	}
 	defer socket.Close()
-	firstRequest := sendInput{RequestID: randomID(), Text: "Как поступить?", FileIDs: []string{file.ID}}
+	firstRequest := chat.SendInput{RequestID: identity.NewID(), Text: "Как поступить?", FileIDs: []string{file.ID}}
 	account.call("POST", first+"/messages", 202, firstRequest, nil)
 	firstReply := account.completed(first)
 	account.call("POST", first+"/messages", 202, firstRequest, nil)
-	account.call("POST", first+"/messages", 202, sendInput{RequestID: randomID(), Text: "А в магистратуру?"}, nil)
+	account.call("POST", first+"/messages", 202, chat.SendInput{RequestID: identity.NewID(), Text: "А в магистратуру?"}, nil)
 	account.completed(first)
-	account.call("POST", second+"/messages", 202, sendInput{RequestID: randomID(), Text: "Вопрос в другом диалоге."}, nil)
+	account.call("POST", second+"/messages", 202, chat.SendInput{RequestID: identity.NewID(), Text: "Вопрос в другом диалоге."}, nil)
 	account.completed(second)
-	guest.call("POST", guestChat+"/messages", 202, sendInput{RequestID: randomID(), Text: "Гостевой вопрос."}, nil)
+	guest.call("POST", guestChat+"/messages", 202, chat.SendInput{RequestID: identity.NewID(), Text: "Гостевой вопрос."}, nil)
 	socket.SetReadDeadline(time.Now().Add(3 * time.Second))
-	var change event
+	var change events.Event
 	if err := socket.ReadJSON(&change); err != nil || change.ChatID != strings.TrimPrefix(guestChat, "/chats/") {
 		t.Fatalf("Неверное событие гостя: %+v, %v", change, err)
 	}
@@ -344,20 +357,20 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 		t.Fatalf("Потеря данных ответа: %+v", answer)
 	}
 	service.Close()
-	db.db.Close()
-	db, err = newStore(dsn, filename)
+	db.Close()
+	db, err = storage.Open(dsn, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.db.Close()
-	if account, err := db.authenticate(migratedToken, false); err != nil || account.owner != migratedID {
+	defer db.Close()
+	if account, err := db.Authenticate(migratedToken, false); err != nil || account.Owner != migratedID {
 		t.Fatalf("Импортированная сессия после перезапуска: %+v, %v", account, err)
 	}
-	reopened := httptest.NewServer(newServer(db, runner, false).routes())
+	reopened := httptest.NewServer(routes(db, runner, false))
 	defer reopened.Close()
 	account.base = reopened.URL + "/api/v1"
 	guest.base = account.base
-	var settings profile
+	var settings accounts.Profile
 	account.call("GET", "/profile", 200, nil, &settings)
 	if settings.Theme != "dark" || settings.Name != "Елена" {
 		t.Fatalf("Профиль потерян после перезапуска: %+v", settings)
@@ -389,10 +402,10 @@ func TestLegacyAgentQuestionContract(t *testing.T) {
 		fmt.Fprint(w, `{"status":"partial","answer":"Ответ","citations":[]}`)
 	}))
 	defer service.Close()
-	result, err := newLegacyAgent(service.URL).answer(context.Background(), agentRequest{
-		Message: message{Text: "Уточните", Quote: "Цитируемый фрагмент"},
-		History: []message{{Role: "user", Text: "Сохранённый диалог"}}, Instructions: "Настройка профиля",
-	}, func(activity) {})
+	result, err := agentclient.New(service.URL).Answer(context.Background(), chat.AgentRequest{
+		Message: chat.Message{Text: "Уточните", Quote: "Цитируемый фрагмент"},
+		History: []chat.Message{{Role: "user", Text: "Сохранённый диалог"}}, Instructions: "Настройка профиля",
+	}, func(chat.Activity) {})
 	if err != nil || result.Status != "partial" {
 		t.Fatalf("Ответ: %+v, ошибка: %v", result, err)
 	}
@@ -410,17 +423,19 @@ func TestAttachmentOnlyOCRUsesInferenceWithoutAgent(t *testing.T) {
 	}))
 	defer inference.Close()
 
-	client := newLegacyAgent("http://127.0.0.1:1")
-	client.inference = &inferenceClient{base: inference.URL, token: "test-token", client: client.client}
-	reply, err := client.answer(context.Background(), agentRequest{
-		Message: message{Attachments: []attachment{{ID: "fixture", Name: "test.png", MIME: "image/png"}}},
+	client := agentclient.New("http://127.0.0.1:1")
+	if err := client.Configure("", inference.URL, "test-token", 3*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	reply, err := client.Answer(context.Background(), chat.AgentRequest{
+		Message: chat.Message{Attachments: []chat.Attachment{{ID: "fixture", Name: "test.png", MIME: "image/png"}}},
 		ReadAttachment: func(id string) ([]byte, error) {
 			if id != "fixture" {
 				t.Errorf("Неожиданный идентификатор %s", id)
 			}
 			return []byte("png"), nil
 		},
-	}, func(activity) {})
+	}, func(chat.Activity) {})
 	if err != nil || reply.Status != "answered" || len(reply.Artifacts) != 1 || reply.Artifacts[0].Text != "Расписание 2036" {
 		t.Fatalf("Ответ: %+v, ошибка: %v", reply, err)
 	}
@@ -428,17 +443,17 @@ func TestAttachmentOnlyOCRUsesInferenceWithoutAgent(t *testing.T) {
 
 type cancellableAgent struct{ started chan int }
 
-func (runner cancellableAgent) answer(ctx context.Context, _ agentRequest, _ func(activity)) (agentAnswer, error) {
+func (runner cancellableAgent) Answer(ctx context.Context, _ chat.AgentRequest, _ func(chat.Activity)) (chat.AgentAnswer, error) {
 	runner.started <- 1
 	<-ctx.Done()
-	return agentAnswer{}, ctx.Err()
+	return chat.AgentAnswer{}, ctx.Err()
 }
 
 func TestTurnQuotaCancellationAndProblemContract(t *testing.T) {
-	db := &store{guests: make(map[string]*guestSession)}
+	db := storage.NewGuestStore()
 	t.Setenv("BACKEND_MAX_ACTIVE_TURNS", "1")
 	runner := cancellableAgent{started: make(chan int, 1)}
-	server := httptest.NewServer(newServer(db, runner, false).routes())
+	server := httptest.NewServer(routes(db, runner, false))
 	defer server.Close()
 	client := newBrowser(t, server.URL+"/api/v1")
 	var guest map[string]string
@@ -446,15 +461,15 @@ func TestTurnQuotaCancellationAndProblemContract(t *testing.T) {
 	client.token = guest["token"]
 	first, second := client.create(), client.create()
 	var accepted map[string]string
-	client.call("POST", first+"/messages", 202, sendInput{RequestID: randomID(), Text: "Когда занятия?"}, &accepted)
+	client.call("POST", first+"/messages", 202, chat.SendInput{RequestID: identity.NewID(), Text: "Когда занятия?"}, &accepted)
 	select {
 	case <-runner.started:
 	case <-time.After(time.Second):
 		t.Fatal("Агент не получил ход")
 	}
-	var busy problemDetails
-	client.call("POST", second+"/messages", 429, sendInput{RequestID: randomID(), Text: "Второй вопрос"}, &busy)
-	var untouched chat
+	var busy httpapi.Problem
+	client.call("POST", second+"/messages", 429, chat.SendInput{RequestID: identity.NewID(), Text: "Второй вопрос"}, &busy)
+	var untouched chat.Chat
 	client.call("GET", second, 200, nil, &untouched)
 	if len(untouched.Messages) != 0 {
 		t.Fatalf("Отклонённый запрос изменил гостевой чат: %+v", untouched.Messages)
@@ -468,4 +483,20 @@ func TestTurnQuotaCancellationAndProblemContract(t *testing.T) {
 	if last.Problem == nil || last.Problem.Status != 409 || last.State != "failed" {
 		t.Fatalf("Запрос не отменён: %+v", last)
 	}
+}
+
+type session struct {
+	Owner   string    `json:"owner"`
+	Expires time.Time `json:"expires"`
+}
+
+func tokenKey(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(digest[:])
+}
+
+type credentials struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }

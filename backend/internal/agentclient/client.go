@@ -1,4 +1,4 @@
-package main
+package agentclient
 
 import (
 	"bytes"
@@ -8,41 +8,22 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/qubeyond/neti-next/backend/internal/apperr"
+	"github.com/qubeyond/neti-next/backend/internal/chat"
+	"github.com/qubeyond/neti-next/backend/internal/httpapi"
 )
 
-// Данные текущего хода передаются из рабочего пространства адаптеру агента.
-type agentRequest struct {
-	ChatID         string
-	History        []message
-	Message        message
-	DisplayName    string
-	Instructions   string
-	ReadAttachment func(string) ([]byte, error)
-}
-
-type agentAnswer struct {
-	Status      string          `json:"status"`
-	Answer      string          `json:"answer"`
-	Citations   []citation      `json:"citations"`
-	Blocks      []chatBlock     `json:"blocks,omitempty"`
-	Suggestions []string        `json:"suggestions,omitempty"`
-	Events      []calendarEvent `json:"events"`
-	Artifacts   []artifact      `json:"artifacts"`
-}
-
-type agent interface {
-	answer(context.Context, agentRequest, func(activity)) (agentAnswer, error)
-}
-
-type legacyAgent struct {
+type Client struct {
 	client    *http.Client
 	endpoint  string
 	inference *inferenceClient
 	token     string
 }
 
-func newLegacyAgent(baseURL string) legacyAgent {
-	return legacyAgent{
+func New(baseURL string) Client {
+	return Client{
 		client:   &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
 		endpoint: strings.TrimRight(baseURL, "/") + "/agent/v1/answers",
 	}
@@ -52,12 +33,12 @@ var imageQuestion = regexp.MustCompile(`(?i)фото|снимк|скрин|из�
 
 type preparedTurn struct {
 	payload []byte
-	local   agentAnswer
+	local   chat.AgentAnswer
 	image   *recognizedImage
 }
 
-func (agent legacyAgent) prepare(ctx context.Context, input agentRequest, report func(activity)) (preparedTurn, error) {
-	var result agentAnswer
+func (agent Client) prepare(ctx context.Context, input chat.AgentRequest, report func(chat.Activity)) (preparedTurn, error) {
+	var result chat.AgentAnswer
 	question := input.Message.Text
 	contextText := ""
 	var image *recognizedImage
@@ -69,7 +50,7 @@ func (agent legacyAgent) prepare(ctx context.Context, input agentRequest, report
 			}
 		}
 		if photos > 1 {
-			return preparedTurn{local: agentAnswer{Status: "clarification", Answer: "Пришлите одну фотографию, к которой относится вопрос."}}, nil
+			return preparedTurn{local: chat.AgentAnswer{Status: "clarification", Answer: "Пришлите одну фотографию, к которой относится вопрос."}}, nil
 		}
 	}
 	if len(input.Message.Attachments) > 0 && agent.inference != nil && input.ReadAttachment != nil {
@@ -94,7 +75,7 @@ func (agent legacyAgent) prepare(ctx context.Context, input agentRequest, report
 		}
 	}
 	if question == "" {
-		return preparedTurn{}, problem(422, "Добавьте текст, аудиозапись, PDF или изображение для распознавания.")
+		return preparedTurn{}, apperr.HTTP(422, "Добавьте текст, аудиозапись, PDF или изображение для распознавания.")
 	}
 	runes := []rune(question)
 	question = string(runes[:min(len(runes), 2000)])
@@ -125,22 +106,22 @@ func (agent legacyAgent) prepare(ctx context.Context, input agentRequest, report
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return preparedTurn{}, problem(500, "Не удалось подготовить запрос.")
+		return preparedTurn{}, apperr.HTTP(500, "Не удалось подготовить запрос.")
 	}
 	return preparedTurn{payload: data, local: result, image: image}, nil
 }
 
-func (agent legacyAgent) answer(ctx context.Context, input agentRequest, report func(activity)) (agentAnswer, error) {
+func (agent Client) Answer(ctx context.Context, input chat.AgentRequest, report func(chat.Activity)) (chat.AgentAnswer, error) {
 	prepared, err := agent.prepare(ctx, input, report)
 	if err != nil || len(prepared.payload) == 0 {
 		return prepared.local, err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, agent.endpoint, bytes.NewReader(prepared.payload))
 	if err != nil {
-		return prepared.local, problem(503, "Адрес агента настроен неверно.")
+		return prepared.local, apperr.HTTP(503, "Адрес агента настроен неверно.")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	propagate(ctx, request)
+	httpapi.Propagate(ctx, request)
 	if agent.token != "" {
 		request.Header.Set("Authorization", "Bearer "+agent.token)
 	}
@@ -149,26 +130,46 @@ func (agent legacyAgent) answer(ctx context.Context, input agentRequest, report 
 		if ctx.Err() != nil {
 			return prepared.local, ctx.Err()
 		}
-		return prepared.local, problem(502, "Не удалось подключиться к агенту. Попробуйте ещё раз.")
+		return prepared.local, apperr.HTTP(502, "Не удалось подключиться к агенту. Попробуйте ещё раз.")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return prepared.local, upstreamFailure(response.StatusCode, "Агент")
+		return prepared.local, httpapi.UpstreamFailure(response.StatusCode, "Агент")
 	}
-	var answer agentAnswer
+	var answer chat.AgentAnswer
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&answer); err != nil {
-		return prepared.local, problem(502, "Агент вернул ответ в неизвестном формате.")
+		return prepared.local, apperr.HTTP(502, "Агент вернул ответ в неизвестном формате.")
 	}
 	return prepared.finalize(ctx, answer)
 }
 
-func (prepared preparedTurn) finalize(ctx context.Context, answer agentAnswer) (agentAnswer, error) {
+func (prepared preparedTurn) finalize(ctx context.Context, answer chat.AgentAnswer) (chat.AgentAnswer, error) {
 	answer.Artifacts = append(prepared.local.Artifacts, answer.Artifacts...)
 	addImageRegions(ctx, prepared.image, answer.Citations)
 	switch answer.Status {
 	case "answered", "partial", "unverified", "clarification":
 		return answer, nil
 	default:
-		return agentAnswer{}, problem(502, "Агент вернул неизвестный статус ответа.")
+		return chat.AgentAnswer{}, apperr.HTTP(502, "Агент вернул неизвестный статус ответа.")
 	}
+}
+
+func (agent *Client) Configure(agentToken, inferenceURL, inferenceToken string, audioLimit time.Duration) error {
+	pdf, err := loadPDFLimits()
+	if err != nil {
+		return err
+	}
+	agent.token = agentToken
+	agent.inference = &inferenceClient{base: inferenceURL, token: inferenceToken, client: agent.client, pdf: pdf, audioLimit: audioLimit}
+	return nil
+}
+
+func (agent Client) TranscriptionAvailable() bool { return agent.inference != nil }
+
+func (agent Client) Transcribe(ctx context.Context, mime string, data []byte) (string, error) {
+	if err := probeAudio(ctx, data, agent.inference.audioLimit); err != nil {
+		return "", err
+	}
+	result, err := agent.inference.recognize(ctx, chat.Attachment{MIME: mime}, data)
+	return result.Text, err
 }

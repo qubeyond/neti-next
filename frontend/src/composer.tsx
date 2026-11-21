@@ -2,7 +2,7 @@ import { ArrowUpIcon } from '@phosphor-icons/react/dist/icons/ArrowUp'
 import { CameraIcon } from '@phosphor-icons/react/dist/icons/Camera'
 import { FileIcon } from '@phosphor-icons/react/dist/icons/File'
 import { MicrophoneIcon } from '@phosphor-icons/react/dist/icons/Microphone'
-import { PaperclipIcon } from '@phosphor-icons/react/dist/icons/Paperclip'
+import { PlusIcon } from '@phosphor-icons/react/dist/icons/Plus'
 import { StopIcon } from '@phosphor-icons/react/dist/icons/Stop'
 import { WaveformIcon } from '@phosphor-icons/react/dist/icons/Waveform'
 import { XIcon } from '@phosphor-icons/react/dist/icons/X'
@@ -141,7 +141,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
             <span>{file.name}</span><button type="button" className="mini-button" disabled={disabled} aria-label={'Убрать ' + file.name} onClick={() => update({ files: draft.files.filter((_, item) => item !== index) })}><XIcon/></button>
           </span>)}
         </div>}
-        <textarea ref={inputRef} aria-label="Сообщение агенту" placeholder="Спросите о поступлении, учёбе или общежитии…" value={draft.text} maxLength={2000} rows={2}
+        <textarea ref={inputRef} aria-label="Сообщение агенту" placeholder="Задайте вопрос о вузе…" value={draft.text} rows={2}
           onChange={(event) => update({ text: event.target.value })}
           onKeyDown={(event) => {
             if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
@@ -151,7 +151,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
         <div className="composer-controls">
           <div className="compose-tools">
             <input hidden multiple ref={fileInput} type="file" aria-label="Файлы" onChange={(event) => { attach(Array.from(event.target.files ?? [])); event.target.value = '' }} />
-            <button type="button" className="icon-button tool-button" disabled={disabled || draft.files.length >= 5} aria-label="Прикрепить файлы" title="Прикрепить файлы" onClick={() => fileInput.current?.click()}><PaperclipIcon/></button>
+            <button type="button" className="icon-button tool-button" disabled={disabled || draft.files.length >= 5} aria-label="Прикрепить файлы" title="Прикрепить файлы" onClick={() => fileInput.current?.click()}><PlusIcon/></button>
             <input hidden ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" aria-label="Фото документа"
               onChange={(event) => {
                 const photo = event.target.files?.[0]
@@ -163,13 +163,15 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
               }} />
             <button type="button" className="icon-button tool-button" disabled={disabled || draft.files.length >= 5}
               aria-label="Сфотографировать документ" title="Сфотографировать документ" onClick={() => cameraInput.current?.click()}><CameraIcon/></button>
+          </div>
+          <div className="compose-tools">
             <button type="button" className={'icon-button tool-button' + (recording !== null ? ' recording' : '')} disabled={disabled || startingMic || transcribing}
               aria-label={recording === null ? 'Записать аудио' : 'Остановить запись'} title={recording === null ? 'Записать аудио' : 'Остановить запись'} onClick={() => { void toggleRecording() }}>
               {recording === null ? <MicrophoneIcon/> : <StopIcon weight="fill"/>}
             </button>
             {recording !== null && <span className="mic-timer"><WaveformIcon/> {displayDuration(elapsed)}</span>}
+            <button className="send-button" type="submit" aria-label="Отправить сообщение" disabled={!submitEnabled}>{disabled ? <span className="spinner"/> : <ArrowUpIcon weight="bold"/>}</button>
           </div>
-          <button className="send-button" type="submit" aria-label="Отправить сообщение" disabled={!submitEnabled}>{disabled ? <span className="spinner"/> : <ArrowUpIcon weight="bold"/>}</button>
         </div>
       </form>
       <p className={'composer-note' + (warning ? ' warning' : '')} role={warning ? 'alert' : undefined}>

@@ -1,6 +1,7 @@
-package main
+package agentclient
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/qubeyond/neti-next/backend/internal/apperr"
+	"github.com/qubeyond/neti-next/backend/internal/chat"
 )
 
 type pdfLimits struct {
@@ -22,7 +26,7 @@ type pdfLimits struct {
 
 func loadPDFLimits() (pdfLimits, error) {
 	read := func(name, fallback string) (int, error) {
-		value, err := strconv.Atoi(setting(name, fallback))
+		value, err := strconv.Atoi(cmp.Or(os.Getenv(name), fallback))
 		if err != nil || value <= 0 {
 			return 0, fmt.Errorf("%s должен быть положительным целым числом", name)
 		}
@@ -49,8 +53,8 @@ func readPreparedFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, maxFileBytes+1))
-	if len(data) > maxFileBytes {
+	data, err := io.ReadAll(io.LimitReader(file, chat.MaxFileBytes+1))
+	if len(data) > chat.MaxFileBytes {
 		return nil, errors.New("Подготовленная страница превышает лимит.")
 	}
 	return data, err
@@ -69,7 +73,7 @@ func pdfPageCount(info []byte) int {
 	return 0
 }
 
-func (service inferenceClient) preparePDF(ctx context.Context, media attachment, data []byte) (recognition, error) {
+func (service inferenceClient) preparePDF(ctx context.Context, media chat.Attachment, data []byte) (recognition, error) {
 	dir, err := os.MkdirTemp("", "neti-pdf-")
 	if err != nil {
 		return recognition{}, errors.New("Не удалось подготовить PDF.")
@@ -84,14 +88,14 @@ func (service inferenceClient) preparePDF(ctx context.Context, media attachment,
 	info, err := exec.CommandContext(parseContext, "pdfinfo", source).Output()
 	count := pdfPageCount(info)
 	if err != nil || count <= 0 {
-		return recognition{}, problem(422, "Не удалось прочитать PDF.")
+		return recognition{}, apperr.HTTP(422, "Не удалось прочитать PDF.")
 	}
 
 	limit := min(count, service.pdf.pages)
 	output := filepath.Join(dir, "text.txt")
 	lastPage := strconv.Itoa(limit)
 	if err := exec.CommandContext(parseContext, "pdftotext", "-layout", "-l", lastPage, source, output).Run(); err != nil {
-		return recognition{}, problem(422, "Не удалось извлечь текст PDF.")
+		return recognition{}, apperr.HTTP(422, "Не удалось извлечь текст PDF.")
 	}
 	raw, err := readPreparedFile(output)
 	if err != nil {
@@ -112,7 +116,7 @@ func (service inferenceClient) preparePDF(ctx context.Context, media attachment,
 		page := strconv.Itoa(index + 1)
 		pattern := filepath.Join(dir, "page-%d.pdf")
 		if err := exec.CommandContext(parseContext, "pdfseparate", "-f", page, "-l", page, source, pattern).Run(); err != nil {
-			return recognition{}, problem(422, "Не удалось выделить страницу PDF для OCR.")
+			return recognition{}, apperr.HTTP(422, "Не удалось выделить страницу PDF для OCR.")
 		}
 		scans[index], err = readPreparedFile(filepath.Join(dir, "page-"+page+".pdf"))
 		if err != nil {
