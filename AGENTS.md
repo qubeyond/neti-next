@@ -13,7 +13,7 @@
 | Папка | Что ей принадлежит |
 | --- | --- |
 | [frontend](frontend/AGENTS.md) | React, маршруты интерфейса и same-origin прокси. |
-| [backend](backend/AGENTS.md) | Go-бэкенд, его HTTP-контракты и зависимости. Сейчас реализован healthcheck. |
+| [backend](backend/AGENTS.md) | Go-бэкенд профилей, диалогов, файлов и уведомлений WebSocket. |
 | [agent](agent/AGENTS.md) | Поиск, модель, проверка цитат, CLI и FastAPI. |
 | [evals](evals/AGENTS.md) | Вопросы, эталоны, оценивание и сравнение версий. |
 | [docs](docs/AGENTS.md) | Спецификация, материалы трека и отчёты с метриками. |

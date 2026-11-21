@@ -21,7 +21,7 @@ probe() (
       "${stack[@]}" ps -a || true
       "${stack[@]}" logs --tail=30 || true
     fi
-    "${stack[@]}" down --remove-orphans
+    "${stack[@]}" down --remove-orphans --volumes
     docker network rm "$AGENT_DOCKER_NETWORK" >/dev/null
     return "$status"
   }
@@ -32,6 +32,15 @@ probe() (
   address="http://$port"
   curl --fail --silent --show-error "$address/" | grep -F '<title>NETI Next</title>'
   curl --fail --silent --show-error "$address/api/health" | grep -F '{"status":"ok"}'
+  local guest headers
+  guest=$(curl --fail --silent --show-error -X POST "$address/api/v1/auth/guest" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')
+  headers=$(curl --silent --http1.1 --max-time 2 -D - -o /dev/null "$address/api/v1/events" \
+    -H "Origin: $address" -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+    -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+    -H "Sec-WebSocket-Protocol: neti.v1, guest.$guest" || true)
+  grep -F '101 Switching Protocols' <<<"$headers"
+  curl --fail --silent --show-error -X DELETE "$address/api/v1/auth/guest" -H "Authorization: Bearer $guest"
   curl --fail --silent --show-error "$address/agent/health" | grep -F '{"status":"ok"}'
   [[ $(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$address/agent/v1/answers" \
     -H 'Content-Type: application/json' -d '{"question":"Где расписание?"}') == 503 ]]

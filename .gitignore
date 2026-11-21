@@ -19,3 +19,5 @@ dist/
 /web-baseline*.json
 /evals/reports/
 /artifacts/
+/backend/neti-data/
+/neti-data/

@@ -9,7 +9,10 @@ export default defineConfig(({ mode }) => {
       port: 8080,
       strictPort: true,
       proxy: {
-        '/api': process.env.BACKEND_UPSTREAM ?? env.BACKEND_UPSTREAM ?? 'http://127.0.0.1:8000',
+        '/api': {
+          target: process.env.BACKEND_UPSTREAM ?? env.BACKEND_UPSTREAM ?? 'http://127.0.0.1:8000',
+          ws: true,
+        },
         '/agent': process.env.AGENT_UPSTREAM ?? env.AGENT_UPSTREAM ?? 'http://127.0.0.1:8001',
       },
     },
