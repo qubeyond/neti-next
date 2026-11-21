@@ -1,4 +1,4 @@
-package main
+package agentclient
 
 import (
 	"bytes"
@@ -9,43 +9,24 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/qubeyond/neti-next/backend/internal/chat"
 )
 
-// Объявляет данные, доступные следующему адаптеру. Текущий HTTP-метод поддерживает только вопрос.
-type agentRequest struct {
-	ChatID         string
-	History        []message
-	Message        message
-	DisplayName    string
-	Instructions   string
-	ReadAttachment func(string) ([]byte, error)
-}
-
-type agentAnswer struct {
-	Status    string     `json:"status"`
-	Answer    string     `json:"answer"`
-	Citations []citation `json:"citations"`
-	Artifacts []artifact `json:"artifacts"`
-}
-
-type agent interface {
-	answer(context.Context, agentRequest, func(activity)) (agentAnswer, error)
-}
-
-type legacyAgent struct {
+type Client struct {
 	client   *http.Client
 	endpoint string
 }
 
-func newLegacyAgent(baseURL string) legacyAgent {
-	return legacyAgent{
+func New(baseURL string) Client {
+	return Client{
 		client:   &http.Client{CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
 		endpoint: strings.TrimRight(baseURL, "/") + "/agent/v1/answers",
 	}
 }
 
-func (agent legacyAgent) answer(ctx context.Context, input agentRequest, _ func(activity)) (agentAnswer, error) {
-	var result agentAnswer
+func (agent Client) Answer(ctx context.Context, input chat.AgentRequest, _ func(chat.Activity)) (chat.AgentAnswer, error) {
+	var result chat.AgentAnswer
 	if input.Message.Text == "" {
 		return result, errors.New("Агент пока не читает вложения. Отправьте текстовый вопрос.")
 	}
@@ -91,6 +72,6 @@ func (agent legacyAgent) answer(ctx context.Context, input agentRequest, _ func(
 	case "answered", "partial", "unverified":
 		return result, nil
 	default:
-		return agentAnswer{}, errors.New("Агент вернул неизвестный статус ответа.")
+		return chat.AgentAnswer{}, errors.New("Агент вернул неизвестный статус ответа.")
 	}
 }
