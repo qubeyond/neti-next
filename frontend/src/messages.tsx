@@ -11,6 +11,7 @@ import { WarningIcon } from '@phosphor-icons/react/dist/icons/Warning'
 import { WrenchIcon } from '@phosphor-icons/react/dist/icons/Wrench'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
+import { AsciiPigeon } from './pigeon-ascii'
 import { BrandMark, displayDuration } from './ui'
 import { downloadDeadline } from './calendar'
 import { ChatBlockView } from './chat-blocks'
@@ -182,6 +183,7 @@ type Props = {
   chat: string
   session: Session
   latest: boolean
+  mascot: boolean
   animate: boolean
   onQuote: (text: string, question: boolean) => void
   onSuggestion: (text: string) => void
@@ -189,10 +191,11 @@ type Props = {
   onCancel: () => void
 }
 
-export function ChatMessage({ item, chat, session, latest, animate, onQuote, onSuggestion, onRetry, onCancel }: Props) {
+export function ChatMessage({ item, chat, session, latest, mascot, animate, onQuote, onSuggestion, onRetry, onCancel }: Props) {
   const body = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const [copyState, setCopyState] = useState('')
+  const [typing, setTyping] = useState(false)
   const assistant = item.role === 'assistant'
 
   const evidence = item.citations ?? []
@@ -236,10 +239,10 @@ export function ChatMessage({ item, chat, session, latest, animate, onQuote, onS
     </div>}
   </article>
 
-  return <article className="assistant-message" aria-label="Ответ NETI Next">
-    <BrandMark className="message-mark"/>
-    <div className={'assistant-content' + (animate && item.state === 'complete' ? ' reveal' : '')}>
-      <header className="message-heading"><strong>NETI Next</strong></header>
+  return <article className={'assistant-message' + (mascot ? ' with-mascot' : '')} aria-label="Ответ Пигеона">
+    {mascot ? <div className="assistant-mascot"><AsciiPigeon speaking={typing}/></div> : <BrandMark className="message-mark"/>}
+    <div className={'assistant-content' + (item.state === 'complete' ? ' speech-bubble' : '') + (animate && item.state === 'complete' ? ' reveal' : '')}>
+      <header className="message-heading"><strong>Пигеон</strong></header>
       {!!item.activity?.length && <RunActivity item={item}/>}
       {item.state === 'working' && <>
         <div className="thinking-shimmer" aria-hidden="true"><span/><span/></div>
@@ -252,7 +255,7 @@ export function ChatMessage({ item, chat, session, latest, animate, onQuote, onS
       {item.state === 'complete' && <>
         {item.status !== 'answered' && <span className="answer-status">{item.status === 'partial' ? 'Частичный ответ' : item.status === 'clarification' ? 'Уточнение' : 'Недостаточно подтверждений'}</span>}
         <div ref={body} className="markdown" onMouseUp={selectText} onKeyUp={selectText}>
-          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text} sourceIDs={sourceIDs}/></Suspense>
+          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text} sourceIDs={sourceIDs} animate={animate} onTyping={setTyping}/></Suspense>
         </div>
         {item.blocks?.map((block, index) => <ChatBlockView key={index} block={block} sources={sourceIDs}/>)}
         {!!item.suggestions?.length && <div className="deadline-actions" aria-label="Варианты уточнения">

@@ -1,4 +1,4 @@
-package main
+package agentclient
 
 import (
 	"bytes"
@@ -12,14 +12,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
-)
 
-type imageRegion struct {
-	X      float64 `json:"x"`
-	Y      float64 `json:"y"`
-	Width  float64 `json:"width"`
-	Height float64 `json:"height"`
-}
+	"github.com/qubeyond/neti-next/backend/internal/chat"
+)
 
 type ocrLine struct {
 	key   string
@@ -71,12 +66,12 @@ func ocrLines(tsv []byte, width, height int) []ocrLine {
 	return lines
 }
 
-func findImageRegion(lines []ocrLine, quote string, width, height int) *imageRegion {
+func findImageRegion(lines []ocrLine, quote string, width, height int) *chat.ImageRegion {
 	text := normalizeOCR(quote)
 	if len([]rune(text)) < 8 {
 		return nil
 	}
-	var matched *imageRegion
+	var matched *chat.ImageRegion
 	for _, line := range lines {
 		if !strings.Contains(" "+normalizeOCR(line.text)+" ", " "+text+" ") {
 			continue
@@ -84,7 +79,7 @@ func findImageRegion(lines []ocrLine, quote string, width, height int) *imageReg
 		if matched != nil {
 			return nil
 		}
-		matched = &imageRegion{
+		matched = &chat.ImageRegion{
 			X: float64(line.left) / float64(width), Y: float64(line.top) / float64(height),
 			Width: float64(line.right-line.left) / float64(width), Height: float64(line.end-line.top) / float64(height),
 		}
@@ -92,7 +87,7 @@ func findImageRegion(lines []ocrLine, quote string, width, height int) *imageReg
 	return matched
 }
 
-func addImageRegions(parent context.Context, photo *recognizedImage, citations []citation) {
+func addImageRegions(parent context.Context, photo *recognizedImage, citations []chat.Citation) {
 	if photo == nil || len(citations) == 0 {
 		return
 	}

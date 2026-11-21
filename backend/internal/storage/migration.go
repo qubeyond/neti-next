@@ -1,4 +1,4 @@
-package main
+package storage
 
 import (
 	"database/sql"
@@ -8,6 +8,8 @@ import (
 	"time"
 
 	bolt "go.etcd.io/bbolt"
+
+	"github.com/qubeyond/neti-next/backend/internal/httpapi"
 )
 
 const initialSchema = `
@@ -33,7 +35,7 @@ CREATE INDEX IF NOT EXISTS sessions_expiration ON backend.sessions (expires_at);
 CREATE TABLE IF NOT EXISTS backend.migrations (name text PRIMARY KEY);
 `
 
-func (s *store) initialize(legacyPath string) error {
+func (s *Store) initialize(legacyPath string) error {
 	return s.transaction(60*time.Second, true, func(tx *sql.Tx) error {
 		if _, err := tx.Exec("SELECT pg_advisory_xact_lock(191947566, 1)"); err != nil {
 			return err
@@ -117,7 +119,7 @@ func importWorkspaces(tx *sql.Tx, owners *bolt.Bucket) error {
 			if string(key) == "state" || value == nil {
 				return nil
 			}
-			return storage.put(string(key), value)
+			return storage.Put(string(key), value)
 		})
 	})
 }
@@ -155,7 +157,7 @@ func recoverInterrupted(tx *sql.Tx) error {
 				if item.State == "working" {
 					item.State = "failed"
 					item.Error = "Сервис перезапустился. Повторите запрос."
-					reply := problemResponse(503, item.Error, requestID(""))
+					reply := httpapi.Describe(503, item.Error, httpapi.NormalizeRequestID(""))
 					item.Problem = &reply
 				}
 			}

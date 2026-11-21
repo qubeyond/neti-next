@@ -1,4 +1,4 @@
-package main
+package agentclient
 
 import "testing"
 

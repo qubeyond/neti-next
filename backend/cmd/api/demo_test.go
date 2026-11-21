@@ -13,6 +13,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/qubeyond/neti-next/backend/internal/agentclient"
+	"github.com/qubeyond/neti-next/backend/internal/chat"
 )
 
 func TestDemoTraceSharesChatHistoryAndMedia(t *testing.T) {
@@ -62,17 +65,19 @@ func TestDemoTraceSharesChatHistoryAndMedia(t *testing.T) {
 		w.Write([]byte(`{"status":"answered","answer":"Ответ"}`))
 	}))
 	defer server.Close()
-	adapter := newLegacyAgent(server.URL)
-	adapter.token = "test-token"
-	adapter.inference = &inferenceClient{base: server.URL, client: adapter.client}
+	adapter := agentclient.New(server.URL)
+
+	if err := adapter.Configure("internal-token", server.URL, "", 0); err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 
-	answer, err := adapter.answer(ctx, input, func(activity) {})
+	answer, err := adapter.Answer(ctx, input, func(chat.Activity) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var events []demoEvent
-	if err := adapter.trace(ctx, input, func(event demoEvent) error {
+	var events []agentclient.TraceEvent
+	if err := adapter.Trace(ctx, input, func(event agentclient.TraceEvent) error {
 		events = append(events, event)
 		return nil
 	}); err != nil {

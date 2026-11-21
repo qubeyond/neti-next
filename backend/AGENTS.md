@@ -8,10 +8,11 @@
 - `BACKEND_PORT` описан в `.env.example`. Нативный Go-процесс читает значение из окружения, Compose передаёт его из файла. При смене порта в стеке сверь `BACKEND_UPSTREAM` фронтенда.
 - PDF разбирает Go через Poppler: извлекай текстовый слой, передавай пустые страницы в OCR и добавляй номера страниц в результат. Лимиты задаются в `backend/.env.example`. Для запуска вне контейнера установи `poppler-utils`.
 - Настрой `BACKEND_AGENT_URL` для вызова одноходового FastAPI. Указывай базовый адрес сервиса. `BACKEND_DATABASE_DSN` подключает Go к PostgreSQL под ролью `neti_backend`. Используй схему `backend`. `BACKEND_DATA_FILE` задаёт путь к старому BoltDB для одноразового импорта. Гостевые данные живут в памяти процесса.
+- Точка входа находится в `cmd/api`. Пакеты `internal/account` и `internal/chat` держат HTTP-обработчики, прикладные операции и интерфейсы репозиториев. PostgreSQL, импорт BoltDB и гостевое хранилище находятся в `internal/storage`. Вызовы агента и инференса находятся в `internal/agentclient`.
 
 ## Запуск и проверка
 
-Из `backend/` выполни `gofmt -l .` и `go test ./...`. Интеграционный тест использует `BACKEND_TEST_DATABASE_DSN` с пустой схемой `backend`. Compose smoke поднимает отдельную БД и выполняет этот тест. Для ручного запуска используй `make -C deploy dev SERVICES=backend` или передай `BACKEND_DATABASE_DSN` процессу Go и запусти `go run .`.
+Из `backend/` выполни `gofmt -l .` и `go test ./...`. Интеграционный тест использует `BACKEND_TEST_DATABASE_DSN` с пустой схемой `backend`. Compose smoke поднимает отдельную БД и выполняет этот тест. Для ручного запуска используй `make -C deploy dev SERVICES=backend` или передай `BACKEND_DATABASE_DSN` процессу Go и запусти `go run ./cmd/api`.
 
 Маршрут `/api/health` должен вернуть `{"status":"ok"}`. При изменении БД или обратного прокси запусти общий smoke.
 
