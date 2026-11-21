@@ -7,6 +7,23 @@
             "title": "Answer",
             "type": "string"
           },
+          "blocks": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ChatGrid"
+                },
+                {
+                  "$ref": "#/components/schemas/ChatCalculation"
+                },
+                {
+                  "$ref": "#/components/schemas/ChatGap"
+                }
+              ]
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
           "citations": {
             "items": {
               "$ref": "#/components/schemas/Citation"
@@ -14,14 +31,29 @@
             "title": "Citations",
             "type": "array"
           },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
           "status": {
             "enum": [
               "answered",
               "partial",
-              "unverified"
+              "unverified",
+              "clarification"
             ],
             "title": "Status",
             "type": "string"
+          },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggestions",
+            "type": "array"
           }
         },
         "required": [
@@ -32,11 +64,197 @@
         "title": "AnswerResponse",
         "type": "object"
       },
+      "BlockCell": {
+        "properties": {
+          "ref": {
+            "title": "Ref",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "ref"
+        ],
+        "title": "BlockCell",
+        "type": "object"
+      },
+      "CalendarEvent": {
+        "properties": {
+          "citation": {
+            "title": "Citation",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "title",
+          "citation"
+        ],
+        "title": "CalendarEvent",
+        "type": "object"
+      },
+      "ChatCalculation": {
+        "properties": {
+          "kind": {
+            "const": "calculation",
+            "title": "Kind",
+            "type": "string"
+          },
+          "operands": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/components/schemas/BlockCell"
+              },
+              {
+                "$ref": "#/components/schemas/BlockCell"
+              }
+            ],
+            "title": "Operands",
+            "type": "array"
+          },
+          "operator": {
+            "enum": [
+              "+",
+              "-",
+              "*",
+              "/"
+            ],
+            "title": "Operator",
+            "type": "string"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "operator",
+          "operands",
+          "result"
+        ],
+        "title": "ChatCalculation",
+        "type": "object"
+      },
+      "ChatGap": {
+        "properties": {
+          "kind": {
+            "const": "gap",
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "note"
+        ],
+        "title": "ChatGap",
+        "type": "object"
+      },
+      "ChatGrid": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "table",
+              "office",
+              "edition"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BlockCell"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "columns",
+          "rows"
+        ],
+        "title": "ChatGrid",
+        "type": "object"
+      },
       "Citation": {
         "properties": {
+          "attachment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attachment Id"
+          },
           "quote": {
             "title": "Quote",
             "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
           },
           "url": {
             "title": "Url",
@@ -50,38 +268,86 @@
         "title": "Citation",
         "type": "object"
       },
-      "ErrorResponse": {
+      "HistoryTurn": {
         "properties": {
-          "detail": {
-            "title": "Detail",
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 800,
+            "title": "Text",
             "type": "string"
           }
         },
         "required": [
-          "detail"
+          "role",
+          "text"
         ],
-        "title": "ErrorResponse",
+        "title": "HistoryTurn",
         "type": "object"
       },
-      "HTTPValidationError": {
+      "ImageSource": {
         "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
+          "id": {
+            "pattern": "^[0-9a-f]{48}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 6000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
           }
         },
-        "title": "HTTPValidationError",
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "ImageSource",
         "type": "object"
       },
       "QuestionRequest": {
         "properties": {
+          "attachment_text": {
+            "default": "",
+            "maxLength": 6000,
+            "title": "Attachment Text",
+            "type": "string"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryTurn"
+            },
+            "maxItems": 6,
+            "title": "History",
+            "type": "array"
+          },
+          "image_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "question": {
             "maxLength": 2000,
             "minLength": 1,
             "title": "Question",
+            "type": "string"
+          },
+          "quoted_text": {
+            "default": "",
+            "maxLength": 1200,
+            "title": "Quoted Text",
             "type": "string"
           }
         },
@@ -89,46 +355,6 @@
           "question"
         ],
         "title": "QuestionRequest",
-        "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
         "type": "object"
       }
     }
@@ -168,6 +394,18 @@
     "/agent/v1/answers": {
       "post": {
         "operationId": "createAgentAnswer",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -189,38 +427,986 @@
             },
             "description": "Successful Response"
           },
-          "422": {
+          "401": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Unauthorized"
+          },
+          "411": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Length Required"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           },
           "502": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
                 }
               }
             },
-            "description": "Ошибка провайдера или формата ответа"
+            "description": "Bad Gateway"
           },
           "503": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
                 }
               }
             },
-            "description": "Веб-ответы выключены"
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
           }
         },
         "summary": "Create Answer",
+        "tags": [
+          "answers"
+        ]
+      }
+    },
+    "/agent/v1/answers/trace": {
+      "post": {
+        "operationId": "traceAgentAnswer",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Authorization",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "411": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Length Required"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "title": "Detail",
+                      "type": "string"
+                    },
+                    "errors": {
+                      "anyOf": [
+                        {
+                          "items": {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "title": "Errors"
+                    },
+                    "request_id": {
+                      "title": "Request Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "title": "Status",
+                      "type": "integer"
+                    },
+                    "title": {
+                      "title": "Title",
+                      "type": "string"
+                    },
+                    "type": {
+                      "title": "Type",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "request_id"
+                  ],
+                  "title": "Problem",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Trace Answer",
         "tags": [
           "answers"
         ]

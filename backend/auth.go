@@ -2,14 +2,16 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	bolt "go.etcd.io/bbolt"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -50,20 +52,18 @@ func (s *server) register(w http.ResponseWriter, r *http.Request) error {
 	}
 	account := profile{ID: randomID(), Email: input.Email, Name: input.Name, Theme: "light"}
 	token := randomID()
-	err = s.store.db.Update(func(tx *bolt.Tx) error {
-		index := tx.Bucket(emails)
-		if index.Get([]byte(input.Email)) != nil {
-			return problem(409, "Аккаунт с такой почтой уже есть.")
-		}
-		bucket, err := tx.Bucket(owners).CreateBucket([]byte(account.ID))
+	err = s.store.update(func(tx *sql.Tx) error {
+		state := workspace{Profile: account, Password: hashed, Chats: make(map[string]*storedChat)}
+		data, err := json.Marshal(state)
 		if err != nil {
 			return err
 		}
-		state := workspace{Profile: account, Password: hashed, Chats: make(map[string]*storedChat)}
-		if err := putJSON(bucket, stateKey, state); err != nil {
-			return err
+		_, err = tx.Exec("INSERT INTO backend.workspaces (id, email, state) VALUES ($1, $2, $3)", account.ID, account.Email, data)
+		var pgError *pq.Error
+		if errors.As(err, &pgError) && pgError.Code == "23505" && pgError.Constraint == "workspaces_email_key" {
+			return problem(409, "Аккаунт с такой почтой уже есть.")
 		}
-		if err := index.Put([]byte(account.Email), []byte(account.ID)); err != nil {
+		if err != nil {
 			return err
 		}
 		return addSession(tx, token, account.ID)
@@ -87,13 +87,12 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	var snapshot workspace
-	if err := s.store.db.View(func(tx *bolt.Tx) error {
-		owner := tx.Bucket(emails).Get([]byte(email))
-		if owner == nil {
+	if err := s.store.transaction(5*time.Second, false, func(tx *sql.Tx) error {
+		var err error
+		snapshot, err = readWorkspace(tx.QueryRow("SELECT state FROM backend.workspaces WHERE email = $1", email))
+		if errors.Is(err, errGone) {
 			return invalid
 		}
-		var err error
-		snapshot, err = readWorkspace(tx.Bucket(owners).Bucket(owner))
 		return err
 	}); err != nil {
 		return err
@@ -103,9 +102,15 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	token := randomID()
 	var account profile
-	err := s.store.db.Update(func(tx *bolt.Tx) error {
-		current, err := readWorkspace(tx.Bucket(owners).Bucket([]byte(snapshot.Profile.ID)))
-		if err != nil || !bytes.Equal(current.Password, snapshot.Password) {
+	err := s.store.update(func(tx *sql.Tx) error {
+		current, err := readWorkspace(tx.QueryRow("SELECT state FROM backend.workspaces WHERE id = $1 FOR UPDATE", snapshot.Profile.ID))
+		if errors.Is(err, errGone) {
+			return invalid
+		}
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(current.Password, snapshot.Password) {
 			return invalid
 		}
 		account = current.Profile
@@ -119,39 +124,21 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func addSession(tx *bolt.Tx, token, owner string) error {
-	bucket := tx.Bucket(sessions)
-	if err := removeSessions(bucket, "", ""); err != nil {
+func addSession(tx *sql.Tx, token, owner string) error {
+	if _, err := tx.Exec("DELETE FROM backend.sessions WHERE expires_at <= now()"); err != nil {
 		return err
 	}
-	return putJSON(bucket, []byte(tokenKey(token)), session{Owner: owner, Expires: now().Add(sessionLifetime)})
-}
-
-func removeSessions(bucket *bolt.Bucket, owner, keep string) error {
-	var remove [][]byte
-	err := bucket.ForEach(func(key, value []byte) error {
-		var item session
-		if json.Unmarshal(value, &item) != nil || time.Now().After(item.Expires) ||
-			(owner != "" && item.Owner == owner && string(key) != keep) {
-			remove = append(remove, bytes.Clone(key))
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	for _, key := range remove {
-		if err := bucket.Delete(key); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := tx.Exec("INSERT INTO backend.sessions (token, owner, expires_at) VALUES ($1, $2, $3)", tokenKey(token), owner, now().Add(sessionLifetime))
+	return err
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request) error {
 	if cookie, err := r.Cookie(sessionCookie); err == nil {
 		key := tokenKey(cookie.Value)
-		if err := s.store.db.Update(func(tx *bolt.Tx) error { return tx.Bucket(sessions).Delete([]byte(key)) }); err != nil {
+		if err := s.store.update(func(tx *sql.Tx) error {
+			_, err := tx.Exec("DELETE FROM backend.sessions WHERE token = $1", key)
+			return err
+		}); err != nil {
 			return err
 		}
 		s.events.disconnect(func(subscriber identity) bool { return subscriber.token == key })
@@ -178,6 +165,7 @@ func (s *server) deleteGuest(w http.ResponseWriter, r *http.Request) error {
 		return problem(403, "Требуется гостевая сессия.")
 	}
 	s.store.endGuest(who)
+	s.turns.cancel(who.owner, "")
 	s.events.disconnect(func(subscriber identity) bool { return subscriber == who })
 	w.WriteHeader(204)
 	return nil
@@ -246,9 +234,8 @@ func (s *server) updateProfile(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	var account profile
-	err = s.store.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(owners).Bucket([]byte(who.owner))
-		state, err := readWorkspace(bucket)
+	err = s.store.update(func(tx *sql.Tx) error {
+		state, err := readWorkspace(tx.QueryRow("SELECT state FROM backend.workspaces WHERE id = $1 FOR UPDATE", who.owner))
 		if err != nil {
 			return err
 		}
@@ -266,12 +253,12 @@ func (s *server) updateProfile(w http.ResponseWriter, r *http.Request) error {
 				return problem(409, "Пароль уже изменился. Попробуйте ещё раз.")
 			}
 			state.Password = newHash
-			if err := removeSessions(tx.Bucket(sessions), who.owner, who.token); err != nil {
+			if _, err := tx.Exec("DELETE FROM backend.sessions WHERE owner = $1 AND token <> $2", who.owner, who.token); err != nil {
 				return err
 			}
 		}
 		account = state.Profile
-		return putJSON(bucket, stateKey, state)
+		return saveWorkspace(tx, who.owner, state)
 	})
 	if err != nil {
 		return err
@@ -288,23 +275,14 @@ func (s *server) deleteProfile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	err = s.store.db.Update(func(tx *bolt.Tx) error {
-		workspaces := tx.Bucket(owners)
-		state, err := readWorkspace(workspaces.Bucket([]byte(who.owner)))
-		if err != nil {
-			return err
-		}
-		if err := tx.Bucket(emails).Delete([]byte(state.Profile.Email)); err != nil {
-			return err
-		}
-		if err := removeSessions(tx.Bucket(sessions), who.owner, ""); err != nil {
-			return err
-		}
-		return workspaces.DeleteBucket([]byte(who.owner))
+	err = s.store.update(func(tx *sql.Tx) error {
+		_, err := tx.Exec("DELETE FROM backend.workspaces WHERE id = $1", who.owner)
+		return err
 	})
 	if err != nil {
 		return err
 	}
+	s.turns.cancel(who.owner, "")
 	s.events.disconnect(func(subscriber identity) bool { return subscriber.owner == who.owner })
 	s.cookie(w, r, "", -1)
 	w.WriteHeader(204)

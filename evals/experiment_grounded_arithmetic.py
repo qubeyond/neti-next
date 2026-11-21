@@ -6,13 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import (
+from agent.domain.errors import AgentError
+from agent.domain.evidence import (
     _verified_excerpts,
     json_object,
     parse_answer,
 )
-from agent.modules.answers.infrastructure.routerai import ask
-from agent.shared.errors import AgentError
+from agent.providers.inference import ask
 from evals.run_web_baseline import usage_summary
 
 PROMPT = (

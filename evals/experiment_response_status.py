@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.shared.config import _local_settings, _setting
+from agent.config import load_settings, required
 from evals.compare_search import EVAL_DIR, read_jsonl
 from evals.metrics import answer_metrics, case_outcome
 from evals.run_web_baseline import answer_case, usage_summary
@@ -52,7 +52,8 @@ def main() -> None:
         gold.update(
             (row["id"], row) for row in read_jsonl(EVAL_DIR / "gold" / f"answers{suffix}.jsonl")
         )
-    system = _setting(_local_settings(), "WEB_SYSTEM_PROMPT")
+
+    system = required(load_settings(), "WEB_SYSTEM_PROMPT")
     summaries = {}
     paired = {}
     for name, prompt in (("control", system), ("explicit", system + SUFFIX)):

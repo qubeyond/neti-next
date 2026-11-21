@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter_ns
 
-from agent.modules.answers.domain.evidence import _plain
+from agent.domain.evidence import _plain
 from evals.compare_search import EVAL_DIR, read_jsonl, url_key
 from evals.experiment_page_context import clean_markdown, passage, stop, words
 from evals.metrics import case_outcome

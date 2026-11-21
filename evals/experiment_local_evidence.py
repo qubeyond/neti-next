@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import prepare_sources
+from agent.domain.evidence import prepare_sources
 from evals.compare_search import EVAL_DIR, read_jsonl, url_key
 from evals.experiment_local_index import evaluate
 from evals.experiment_passage_coverage import quote_form

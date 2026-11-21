@@ -6,18 +6,18 @@ from statistics import median
 from time import perf_counter
 from urllib.parse import parse_qsl, urlsplit
 
-from agent.modules.answers.infrastructure.search import (
+from agent.config import load_settings, positive_int, required
+from agent.domain.errors import AgentError
+from agent.providers.search import (
     PROVIDERS,
     SearchBlocked,
     make_searcher,
 )
-from agent.modules.answers.infrastructure.search_apis import (
+from agent.providers.search_apis import (
     ALTERNATIVES,
     ATTRIBUTION,
     missing_setting,
 )
-from agent.shared.config import _local_settings, _positive_int, _setting
-from agent.shared.errors import AgentError
 
 EVAL_DIR = Path(__file__).resolve().parent
 PILOT_IDS = {
@@ -72,7 +72,7 @@ def url_key(url: str) -> tuple | None:
             return None
         return (
             parts.hostname.removeprefix("www."),
-            parts.path.rstrip("/"),
+            re.sub(r"%[0-9a-fA-F]{2}", lambda match: match[0].upper(), parts.path.rstrip("/")),
             tuple(
                 sorted(
                     (name, value)
@@ -257,11 +257,11 @@ def main() -> None:
     if not 1 <= args.repeat <= 5:
         parser.error("--repeat должен быть от 1 до 5")
     try:
-        settings = _local_settings()
+        settings = load_settings()
         providers = (
             ALTERNATIVES
             if args.alternatives
-            else args.provider or (_setting(settings, "SEARCH_PROVIDER"),)
+            else args.provider or (required(settings, "SEARCH_PROVIDER"),)
         )
         missing = {}
         if args.alternatives:
@@ -272,7 +272,7 @@ def main() -> None:
             }
             providers = [provider for provider in providers if provider not in missing]
         searchers = {provider: make_searcher(provider) for provider in providers}
-        limit = _positive_int(settings, "SEARCH_MAX_RESULTS")
+        limit = positive_int(settings, "SEARCH_MAX_RESULTS")
     except AgentError as error:
         parser.exit(1, f"Ошибка: {error}\n")
     blocked = {}

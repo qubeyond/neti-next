@@ -7,9 +7,10 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.shared.config import _local_settings, _setting
+from agent.config import load_settings
 from evals.experiment_decisions import ABSTAIN, decide
 from evals.metrics import case_outcome
+from evals.provider_settings import routerai_key
 from evals.run_web_baseline import distribution
 
 
@@ -33,8 +34,8 @@ def main() -> None:
     args = parser.parse_args()
     reading = json.loads(args.reading.read_text(encoding="utf-8"))
     grounding = json.loads(args.grounding.read_text(encoding="utf-8"))
-    settings = _local_settings()
-    api_key = _setting(settings, "ROUTERAI_API_KEY")
+    settings = load_settings()
+    api_key = routerai_key(settings)
     interface = os.getenv("ROUTERAI_NETWORK_INTERFACE") or settings.get(
         "ROUTERAI_NETWORK_INTERFACE", ""
     )

@@ -7,8 +7,8 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import _citation_text, _plain
-from agent.modules.answers.domain.passages import (
+from agent.domain.evidence import _citation_text, _plain
+from agent.domain.passages import (
     QUERY_STOP_WORDS,
     WORD,
     prefix_with_evidence,

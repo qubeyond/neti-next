@@ -3,19 +3,21 @@
 import argparse
 import json
 import os
+import socket
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter
-from urllib.error import HTTPError
-from urllib.request import urlopen
 
-from agent.modules.answers.domain.evidence import json_object, prepare_sources
-from agent.modules.answers.infrastructure.network import open_on_interface
-from agent.modules.answers.infrastructure.routerai import ask
-from agent.modules.answers.infrastructure.search_apis import _post
-from agent.shared.config import _local_settings, _setting
-from agent.shared.errors import AgentError
+from httpx2 import Client, HTTPError, HTTPStatusError, HTTPTransport
+
+from agent.config import load_settings
+from agent.domain.errors import AgentError
+from agent.domain.evidence import json_object, prepare_sources
+from agent.providers.http import send_json
+from agent.providers.inference import ask
+from agent.providers.search_apis import _post
 from evals.compare_search import EVAL_DIR, read_jsonl
+from evals.provider_settings import routerai_key
 
 MODELS = {
     "deepseek": "deepseek/deepseek-v4-flash",
@@ -159,13 +161,25 @@ def decide(
                 },
                 {"Authorization": f"Bearer {api_key}"},
             )
-            connection = (
-                open_on_interface(request, 35, interface)
-                if interface
-                else urlopen(request, timeout=35)
-            )
-            with connection as response:
-                payload = json.load(response)
+
+            if interface:
+                option = getattr(socket, "SO_BINDTODEVICE", None)
+
+                if option is None:
+                    raise AgentError(
+                        "Привязка к сетевому интерфейсу поддерживается только в Linux."
+                    )
+
+                transport = HTTPTransport(
+                    trust_env=False,
+                    socket_options=[(socket.SOL_SOCKET, option, os.fsencode(interface) + b"\0")],
+                )
+
+                with Client(transport=transport, trust_env=False) as client:
+                    payload = send_json(request, 35, transport=client)
+            else:
+                payload = send_json(request, 35)
+
             result["usage"] = payload.get("usage") or {}
             decision = payload["answers"]["route"]
             choice = decision["choice"]
@@ -174,11 +188,11 @@ def decide(
         if not isinstance(choice, str) or choice not in criteria:
             raise ValueError("Действие вне вариантов.")
         result["choice"] = choice
-    except HTTPError as error:
-        result["error"] = f"http_{error.code}"
+    except HTTPStatusError as error:
+        result["error"] = f"http_{error.response.status_code}"
     except AgentError as error:
         result["error"] = str(error)
-    except (OSError, KeyError, ValueError, TypeError) as error:
+    except (HTTPError, OSError, KeyError, ValueError, TypeError) as error:
         result["error"] = type(error).__name__
     result["latency_ms"] = round((perf_counter() - started) * 1000)
     return result
@@ -207,8 +221,9 @@ def main() -> None:
         if unknown:
             parser.error(f"Неизвестные кейсы: {', '.join(sorted(unknown))}.")
         cases = [case for case in cases if case["id"] in args.case]
-    settings = _local_settings()
-    api_key = _setting(settings, "ROUTERAI_API_KEY") if args.live else ""
+
+    settings = load_settings()
+    api_key = routerai_key(settings) if args.live else ""
     interface = os.getenv("ROUTERAI_NETWORK_INTERFACE") or settings.get(
         "ROUTERAI_NETWORK_INTERFACE", ""
     )

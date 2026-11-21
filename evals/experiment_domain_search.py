@@ -5,12 +5,13 @@ import json
 from collections import Counter
 from pathlib import Path
 from time import perf_counter, sleep
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
-from agent.modules.answers.infrastructure.search_apis import _post, _results
-from agent.shared.config import _local_settings, _positive_int, _setting
-from agent.shared.errors import AgentError
+from httpx2 import HTTPError, HTTPStatusError
+
+from agent.config import load_settings, positive_int, required
+from agent.domain.errors import AgentError
+from agent.providers.http import send_json
+from agent.providers.search_apis import _post, _results
 from evals.compare_search import score, url_key
 from evals.metrics import retrieval_metrics
 from evals.run_web_baseline import distribution
@@ -62,8 +63,8 @@ def search(
     error = None
     markdown = {}
     try:
-        with urlopen(request, timeout=timeout) as response:
-            data = json.load(response)
+        data = send_json(request, timeout)
+
         if with_markdown:
             items = data.get("data", {})
             if isinstance(items, list):
@@ -80,12 +81,12 @@ def search(
             }
         results = _results("firecrawl", data, 5)
         status = "ok" if results else "empty"
-    except HTTPError as failure:
-        error = failure.code
+    except HTTPStatusError as failure:
+        error = failure.response.status_code
         status = "blocked" if error in {401, 402, 403, 429} else "error"
     except (
         AgentError,
-        URLError,
+        HTTPError,
         OSError,
         ValueError,
         AttributeError,
@@ -111,9 +112,10 @@ def main() -> None:
     args = parser.parse_args()
     if args.output.exists():
         parser.error("Выходной файл уже существует.")
-    config = _local_settings()
-    key = _setting(config, "FIRECRAWL_API_KEY")
-    timeout = _positive_int(config, "SEARCH_TIMEOUT_SECONDS")
+
+    config = load_settings()
+    key = required(config, "FIRECRAWL_API_KEY")
+    timeout = positive_int(config, "SEARCH_TIMEOUT_SECONDS")
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     runs = {row["id"]: row["search"] for row in baseline["runs"]}
     variants = {"web": [], "official_only": []}

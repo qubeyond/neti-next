@@ -9,13 +9,14 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import perf_counter, sleep
-from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
 
-from agent.modules.answers.domain.evidence import _plain
-from agent.modules.answers.domain.passages import QUERY_STOP_WORDS as stop
-from agent.modules.answers.infrastructure.search_apis import _post
-from agent.shared.config import _local_settings, _positive_int, _setting
+from httpx2 import HTTPError, HTTPStatusError
+
+from agent.config import load_settings, positive_int, required
+from agent.domain.evidence import _plain
+from agent.domain.passages import QUERY_STOP_WORDS as stop
+from agent.providers.http import send_json
+from agent.providers.search_apis import _post
 from evals.compare_search import EVAL_DIR, read_jsonl
 from evals.experiment_rerank import UNIVERSITIES
 from evals.metrics import case_outcome
@@ -49,13 +50,12 @@ def scrape(url: str, api_key: str) -> dict:
     )
     started = perf_counter()
     try:
-        with urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+        payload = send_json(request, 30)
         markdown = payload["data"].get("markdown") or ""
         result = {"status": "ok" if markdown else "empty", "markdown": markdown}
-    except HTTPError as error:
-        result = {"status": f"http_{error.code}"}
-    except (URLError, OSError, ValueError, KeyError):
+    except HTTPStatusError as error:
+        result = {"status": f"http_{error.response.status_code}"}
+    except (HTTPError, OSError, ValueError, KeyError):
         result = {"status": "error"}
     return {**result, "latency_ms": round((perf_counter() - started) * 1000)}
 
@@ -134,10 +134,10 @@ def main() -> None:
     if args.output.exists():
         parser.error("Выходной файл уже существует.")
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
-    settings = _local_settings()
+    settings = load_settings()
     cached_paths = [args.reuse_pages] if args.reuse_pages else args.cached_pages
-    api_key = "" if cached_paths else _setting(settings, "FIRECRAWL_API_KEY")
-    budget = _positive_int(settings, "WEB_SOURCE_MAX_CHARS")
+    api_key = "" if cached_paths else required(settings, "FIRECRAWL_API_KEY")
+    budget = positive_int(settings, "WEB_SOURCE_MAX_CHARS")
 
     questions = {
         row["id"]: row

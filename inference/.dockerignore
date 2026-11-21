@@ -1,0 +1,8 @@
+*
+!src/
+!src/**/*.py
+!pyproject.toml
+!uv.lock
+!.env.example
+!prompts/
+!prompts/*.txt

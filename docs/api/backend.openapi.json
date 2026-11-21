@@ -23,7 +23,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -33,7 +33,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -61,7 +61,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -71,7 +71,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -81,7 +81,7 @@
           "413": {
             "description": "Превышен лимит размера",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -91,7 +91,7 @@
           "422": {
             "description": "Невалидный запрос",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -101,7 +101,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -140,7 +140,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -150,7 +150,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -160,7 +160,7 @@
           "413": {
             "description": "Превышен лимит размера",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -170,7 +170,7 @@
           "422": {
             "description": "Невалидный запрос",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -180,7 +180,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -217,7 +217,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -227,7 +227,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -256,7 +256,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -266,7 +266,7 @@
           "429": {
             "description": "Достигнут лимит гостевых сессий",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -276,7 +276,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -299,7 +299,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -309,7 +309,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -319,7 +319,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -351,7 +351,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -361,7 +361,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -371,7 +371,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -401,7 +401,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -411,7 +411,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -421,7 +421,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -431,7 +431,7 @@
           "413": {
             "description": "Превышен лимит размера",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -441,7 +441,7 @@
           "422": {
             "description": "Невалидный запрос",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -451,7 +451,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -485,7 +485,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -495,7 +495,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -505,7 +505,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -544,7 +544,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -554,7 +554,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -564,7 +564,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -597,7 +597,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -607,7 +607,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -617,7 +617,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -627,7 +627,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -653,7 +653,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -663,7 +663,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -673,7 +673,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -708,7 +708,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -718,7 +718,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -728,7 +728,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -738,7 +738,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -774,7 +774,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -784,7 +784,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -794,7 +794,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -804,7 +804,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -849,7 +849,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -859,7 +859,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -869,7 +869,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -879,7 +879,7 @@
           "413": {
             "description": "Превышен лимит размера",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -889,7 +889,7 @@
           "422": {
             "description": "Невалидный запрос",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -899,7 +899,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -965,7 +965,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -975,7 +975,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -985,7 +985,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -995,7 +995,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1053,7 +1053,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1063,7 +1063,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1073,7 +1073,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1083,7 +1083,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1093,7 +1093,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1146,7 +1146,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1156,7 +1156,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1166,7 +1166,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1176,7 +1176,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1186,7 +1186,7 @@
           "413": {
             "description": "Превышен лимит размера",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1196,7 +1196,7 @@
           "422": {
             "description": "Невалидный запрос",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1206,7 +1206,17 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Достигнут лимит запросов",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1262,7 +1272,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1272,7 +1282,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1282,7 +1292,7 @@
           "404": {
             "description": "Ресурс отсутствует в текущем профиле",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1292,7 +1302,7 @@
           "409": {
             "description": "Конфликт, достигнут лимит или операция уже выполняется",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1302,7 +1312,17 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Достигнут лимит запросов",
+            "content": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1348,7 +1368,7 @@
           "401": {
             "description": "Требуется действующая сессия",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1358,7 +1378,7 @@
           "403": {
             "description": "Доступ отклонён",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1368,7 +1388,7 @@
           "500": {
             "description": "Ошибка сервиса",
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 }
@@ -1384,20 +1404,484 @@
           "$ref": "#/components/schemas/ChatEvent"
         }
       }
+    },
+    "/api/v1/chats/{chat}/messages/{message}/cancel": {
+      "post": {
+        "operationId": "cancelMessage",
+        "security": [
+          {
+            "profileCookie": []
+          },
+          {
+            "guestToken": []
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Требуется действующая сессия",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Доступ отклонён",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ресурс отсутствует в текущем профиле",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Конфликт, достигнут лимит или операция уже выполняется",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Ошибка сервиса",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Отмена принята"
+          }
+        },
+        "parameters": [
+          {
+            "name": "chat",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/demo": {
+      "get": {
+        "operationId": "getDemoAccess",
+        "security": [
+          {
+            "profileCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Доступ разрешён",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "enabled"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нужна сессия",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Действие недоступно",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/demo/runs": {
+      "post": {
+        "operationId": "streamDemoRun",
+        "security": [
+          {
+            "profileCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "history": {
+                    "type": "array",
+                    "maxItems": 6,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "role",
+                        "text"
+                      ],
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "user",
+                            "assistant"
+                          ]
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 800
+                        }
+                      }
+                    }
+                  },
+                  "quoted_text": {
+                    "type": "string",
+                    "maxLength": 1200
+                  }
+                }
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "input",
+                  "file"
+                ],
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "description": "JSON-объект с вопросом, цитатой и репликами истории."
+                  },
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Один аудиофайл, PDF или изображение до 16 МБ."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "NDJSON. Строки span_start, span_end, heartbeat и ровно одна итоговая answer или error. Каждая содержит request_id; дочерний шаг ссылается на parent.",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нужна сессия",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Действие недоступно",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Вход слишком большой",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверный запрос",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Лимит запросов",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Сервис недоступен",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/drafts/transcribe": {
+      "post": {
+        "operationId": "transcribeDraft",
+        "security": [
+          {
+            "profileCookie": []
+          },
+          {
+            "guestToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "audio/webm": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/ogg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/wav": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/mpeg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/mp4": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/flac": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Расшифровка без отправки сообщения",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Нужна сессия",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Действие недоступно",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Вход слишком большой",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Формат не поддерживается",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Неверный запрос",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Лимит запросов",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Ошибка сервиса",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Сервис недоступен",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Истёк дедлайн",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
       "Error": {
         "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "request_id"
+        ],
         "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri-reference"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
           "detail": {
             "type": "string"
+          },
+          "request_id": {
+            "type": "string"
           }
-        },
-        "required": [
-          "detail"
-        ]
+        }
       },
       "Health": {
         "type": "object",
@@ -1556,10 +2040,21 @@
         "properties": {
           "url": {
             "type": "string",
-            "format": "uri"
+            "description": "Внешний URL. Для фото пользователя — пустая строка."
           },
           "quote": {
             "type": "string"
+          },
+          "ref": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "attachment_id": {
+            "type": "string",
+            "description": "Фото в текущем диалоге."
+          },
+          "region": {
+            "$ref": "#/components/schemas/ImageRegion"
           }
         },
         "required": [
@@ -1654,7 +2149,8 @@
             "enum": [
               "answered",
               "partial",
-              "unverified"
+              "unverified",
+              "clarification"
             ]
           },
           "error": {
@@ -1685,6 +2181,27 @@
           "durationMs": {
             "type": "integer",
             "minimum": 0
+          },
+          "problem": {
+            "$ref": "#/components/schemas/Error"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarEvent"
+            }
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatBlock"
+            }
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -1794,6 +2311,141 @@
         "required": [
           "type"
         ]
+      },
+      "ImageRegion": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "width": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "height": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ]
+      },
+      "CalendarEvent": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "title": {
+            "type": "string"
+          },
+          "citation": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "date",
+          "title",
+          "citation"
+        ]
+      },
+      "ChatBlockCell": {
+        "type": "object",
+        "required": [
+          "value",
+          "ref"
+        ],
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ChatBlock": {
+        "type": "object",
+        "required": [
+          "kind",
+          "title"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "table",
+              "office",
+              "edition",
+              "calculation",
+              "gap"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ChatBlockCell"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "+",
+              "-",
+              "*",
+              "/"
+            ]
+          },
+          "operands": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/components/schemas/ChatBlockCell"
+            }
+          },
+          "result": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
       }
     },
     "securitySchemes": {

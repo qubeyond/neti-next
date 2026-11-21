@@ -7,9 +7,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import json_object, prepare_sources
-from agent.modules.answers.infrastructure.routerai import ask
-from agent.shared.errors import AgentError
+from agent.domain.errors import AgentError
+from agent.domain.evidence import json_object, prepare_sources
+from agent.providers.inference import ask
 from evals.compare_search import EVAL_DIR, read_jsonl, score, url_key
 from evals.experiment_cached_passages import archive, compare
 from evals.metrics import case_outcome

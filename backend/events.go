@@ -53,7 +53,12 @@ func (hub *eventHub) disconnect(match func(identity) bool) {
 	}
 }
 
-var upgrader = websocket.Upgrader{Subprotocols: []string{"neti.v1"}, CheckOrigin: sameOrigin}
+var upgrader = websocket.Upgrader{
+	Subprotocols: []string{"neti.v1"}, CheckOrigin: sameOrigin,
+	Error: func(w http.ResponseWriter, _ *http.Request, code int, _ error) {
+		writeError(w, problem(code, "Не удалось открыть канал событий."))
+	},
+}
 
 func (s *server) connectEvents(w http.ResponseWriter, r *http.Request) error {
 	var who identity
