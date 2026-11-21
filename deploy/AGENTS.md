@@ -30,7 +30,8 @@
 
 ## GitHub Actions и production
 
-- `CI` запускает проверки и dev/prod smoke. После успеха на `main` выпускает три образа в GHCR с одним тегом SHA. Вручную повторяй запуск workflow `CI` из `main`.
+- `CI` запускает проверки и dev/prod smoke для PR и обновлений `dev`. Выпуск трёх образов в GHCR с одним тегом SHA доступен при ручном запуске `CI` из `dev`.
+- В `dev` вливай изменения через PR. Обязательные проверки — `Checks`, `Compose smoke (dev)` и `Compose smoke (prod)`. GitHub включает squash auto-merge для готовых PR от участников из веток этого репозитория.
 - Закрепляй Actions по полному SHA. Отключай сохранение checkout-credentials и предоставляй права записи только задачам публикации. Примеры окружений допустимы в образах только как документация; рабочие env подаются при запуске.
 - На сервере установи Docker с Compose v2 и подготовь пользователя с доступом к каталогу релизов и pull из GHCR. Сохрани параметры стека в `stack.env` из [шаблона](.env.example). При необходимости добавь `frontend.env`, `backend.env` и `agent.env` из сервисных шаблонов; файл агента с ключами защищай правами `600`.
 - Для автоматической выкладки установи repo variable `DEPLOY_ENABLED=true`. `PROD_SSH_DIR` задаёт каталог, стандартный путь — `/srv/neti-next`. В environment `production` задай `PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_KEY`, `PROD_SSH_KNOWN_HOSTS`. Проверяй ключ хоста через доверенный источник.
