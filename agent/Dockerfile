@@ -16,4 +16,4 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY src ./src
 USER 10001:10001
 EXPOSE 8001
-CMD ["uvicorn", "agent.http:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]
+CMD ["uvicorn", "agent.app:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log"]

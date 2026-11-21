@@ -1,0 +1,198 @@
+{
+  "nsu_certificate": {
+    "url": "https://education.nsu.ru/freshmen",
+    "locator": "Личный кабинет студента НГУ",
+    "quote": "Электронный деканат (запрос справок, объявления)",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_dorm_start": {
+    "url": "https://education.nsu.ru/freshmen",
+    "locator": "Как заселиться в общежитие? → Когда?",
+    "quote": "Заселение студентов 1 курса начнется 28 августа 2026 г.",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_library_login": {
+    "url": "https://e-lib.nsu.ru/",
+    "locator": "Личный кабинет",
+    "quote": "Для авторизации в электронной библиотеке используйте данные единого университетского аккаунта.",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_schedule": {
+    "url": "https://help.nsu.ru/pages/viewpage.action?pageId=9210395",
+    "locator": "Для студентов → список ресурсов",
+    "quote": "table.nsu.ru - расписание занятий",
+    "checked_on": "2026-11-20",
+    "linked_url": "https://table.nsu.ru/"
+  },
+  "nsu_college_open": {
+    "url": "https://education.nsu.ru/college_admission/",
+    "locator": "Подать документы → Когда",
+    "quote": "20 июня 2026 — начало приемной кампании",
+    "checked_on": "2026-11-20"
+  },
+  "nsu_college_close": {
+    "url": "https://education.nsu.ru/college_admission/",
+    "locator": "Подать документы → Когда",
+    "quote": "15 августа 2026, 17:45 — завершение приема документов от поступающих",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_transfer": {
+    "url": "https://business.nstu.ru/faq_2",
+    "locator": "Как происходит процедура перевода на другое направление?",
+    "quote": "обратиться в деканат, где студенту рассчитают «академическую разницу»",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_app": {
+    "url": "https://business.nstu.ru/faq_2",
+    "locator": "Где можно смотреть расписание лекций и семинаров?",
+    "quote": "мобильное приложение YourNETI",
+    "checked_on": "2026-11-20"
+  },
+  "nstu_budget": {
+    "url": "https://business.nstu.ru/faq",
+    "locator": "Возможен ли переход с платного обучения на бюджет?",
+    "quote": "объявляется конкурс на вакантное место среди студентов соответствующего курса обучения",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_two": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2239",
+    "locator": "Таблица мест → общежитие № 2 → колонка «Общежитие, адрес»",
+    "quote": "Ул. Дуси Ковальчук, 191/4",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_three": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2239",
+    "locator": "Таблица мест → общежитие № 3 → «Количество мест»",
+    "quote": "528",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_four": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2239",
+    "locator": "Таблица мест → общежитие № 4 → «Количество мест»",
+    "quote": "331",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_total": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2239",
+    "locator": "Таблица мест → «Итого» → «Количество мест»",
+    "quote": "2036",
+    "checked_on": "2026-11-20"
+  },
+  "sgups_block": {
+    "url": "https://www.stu.ru/abiturient/index.php?page=2239",
+    "locator": "Таблица мест → общежитие 1/3 → «Количество мест»",
+    "quote": "461",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_first": {
+    "url": "https://nspu.ru/abiturientu/obshchezhitiya/grafik-zaseleniya-v-obshchezhitiya-universiteta/",
+    "locator": "Общежитие № 1 → студенты первого курса → ИЕСЭН",
+    "quote": "ИЕСЭН - 24, 25 августа 2026 года.",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_masters": {
+    "url": "https://nspu.ru/abiturientu/obshchezhitiya/grafik-zaseleniya-v-obshchezhitiya-universiteta/",
+    "locator": "Общежитие № 4 → магистратура → период заселения по приказу",
+    "quote": "С 24 августа 2026 года по 11 сентября 2026 года.",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_original": {
+    "url": "https://nspu.ru/news/zaselenie-v-obshchezhitie-ngpu-chto-nuzhno-znat-studentam-i-ikh-roditelyam/",
+    "locator": "Основной текст новости → общий период заселения",
+    "quote": "Заселение студентов в общежития начинается 24 августа и продлится до 29 августа",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_card": {
+    "url": "https://nspu.ru/news/dlya-vkhoda-i-dlya-polzovaniya-bibliotekoy-v-ngpu-vvodyatsya-v-obrashchenie-novye-kampusnye-karty/",
+    "locator": "Последний абзац → восстановление карты",
+    "quote": "Стоимость восстановления карты составляет 100 рублей",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_card_office": {
+    "url": "https://nspu.ru/news/dlya-vkhoda-i-dlya-polzovaniya-bibliotekoy-v-ngpu-vvodyatsya-v-obrashchenie-novye-kampusnye-karty/",
+    "locator": "Последний абзац → куда обращаться при утере",
+    "quote": "необходимо обратиться в кабинет 101",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_schedule": {
+    "url": "https://nspu.ru/tsifrovaya-sreda/",
+    "locator": "Список ресурсов ЭИОС → ссылка на расписание",
+    "quote": "Электронное расписание НГПУ",
+    "checked_on": "2026-11-20",
+    "linked_url": "https://schedule.nspu.ru/"
+  },
+  "nspu_ege": {
+    "url": "https://nspu.ru/news/ngpu-utochnil-kalendar-priyema-2026-klyuchevye-sroki-dlya-abiturientov/",
+    "locator": "Основной текст → поступающие только по ЕГЭ",
+    "quote": "приём документов завершится 25 июля",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_internal": {
+    "url": "https://nspu.ru/news/ngpu-utochnil-kalendar-priyema-2026-klyuchevye-sroki-dlya-abiturientov/",
+    "locator": "Основной текст → поступающие по внутренним испытаниям",
+    "quote": "приём документов завершается 13 июля",
+    "checked_on": "2026-11-20"
+  },
+  "nspu_branch": {
+    "url": "https://kf.nspu.ru/abitur/bachelor/",
+    "locator": "Бакалавриат → порядок внесения изменений в заявления → строка с упоминанием испытаний КФ НГПУ",
+    "quote": "15.07.2026 г. - поступающие по результатам вступительных испытаний, проводимых КФ НГПУ самостоятельно;",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_start": {
+    "url": "https://education.sgugit.ru/abiturientam/obshchezhitie/poryadok-zaseleniya-2/",
+    "locator": "Строка после списков на заселение",
+    "quote": "Заселение студентов в общежитие производится с 26 августа 2026 г.",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_photo": {
+    "url": "https://education.sgugit.ru/abiturientam/obshchezhitie/poryadok-zaseleniya-2/",
+    "locator": "Порядок заселения → документы",
+    "quote": "1 фотографию (формат 3х4) в электронном виде для пропуска в общежитие.",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_reader": {
+    "url": "https://sgugit.ru/obrashchenie-grazhdan/chasto-zadavaemye-voprosy/",
+    "locator": "Как оформить читательский билет?",
+    "quote": "читальный зал библиотеки (аудитория 113 главного корпуса). С собой нужно иметь студенческий билет.",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_address": {
+    "url": "https://sgugit.ru/kontakty/",
+    "locator": "Контакты → адрес организации",
+    "quote": "Адрес: 630108, г. Новосибирск, ул. Плахотного, 10",
+    "checked_on": "2026-11-20"
+  },
+  "sgugit_library": {
+    "url": "https://sgugit.ru/university/struct/ntb/",
+    "locator": "Научно-техническая библиотека → ссылка на сайт библиотеки",
+    "quote": "Сайт библиотеки",
+    "checked_on": "2026-11-20",
+    "linked_url": "https://lib.sgugit.ru/"
+  },
+  "sib_credit": {
+    "url": "https://ndo.sibsutis.ru/login/login.asp",
+    "locator": "Получение доступа → уведомление студентам",
+    "quote": "после оплаты обучения и поступления денежных средств на счет СибГУТИ (как правило, в течение 5 рабочих дней).",
+    "checked_on": "2026-11-20"
+  },
+  "sib_distance": {
+    "url": "https://do.sibsutis.ru/tehnologii_obucheniya",
+    "locator": "Технология дистанционного обучения → первый абзац",
+    "quote": "разновидность заочной формы обучения без выездов на экзаменационные сессии",
+    "checked_on": "2026-11-20"
+  },
+  "sib_address": {
+    "url": "https://do.sibsutis.ru/kak_postupit/distans_podacha",
+    "locator": "Порядок поступления → отправка документов",
+    "quote": "заказным письмом на адрес: 630102, Новосибирск, ул.Кирова, 86, СибГУТИ, отдел дистанционного обучения",
+    "checked_on": "2026-11-20"
+  },
+  "sib_rules": {
+    "url": "https://do.sibsutis.ru/normativnie_dokumenti",
+    "locator": "Правила приёма 2026",
+    "quote": "С правилами приёма можно ознакомиться по ссылке:",
+    "checked_on": "2026-11-20",
+    "linked_url": "https://sibsutis.ru/abitur/bachelor/"
+  }
+}

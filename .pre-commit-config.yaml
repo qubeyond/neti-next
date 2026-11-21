@@ -1,0 +1,44 @@
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: python-lint
+        name: Ruff check
+        entry: uv run --project agent --locked ruff check --config agent/pyproject.toml --fix
+        language: system
+        types: [python]
+
+      - id: python-format
+        name: Ruff format
+        entry: uv run --project agent --locked ruff format --config agent/pyproject.toml
+        language: system
+        types: [python]
+
+      - id: agent-code-style
+        name: Стиль агента
+        entry: uv run --project agent --locked python scripts/hooks/check_code_style.py --fix
+        language: system
+        types: [python]
+        files: ^(agent/(src|tests)/|scripts/)
+
+      - id: project-check
+        name: Проверки проекта
+        entry: make -C deploy check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

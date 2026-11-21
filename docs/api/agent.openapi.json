@@ -1,0 +1,230 @@
+{
+  "components": {
+    "schemas": {
+      "AnswerResponse": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "answered",
+              "partial",
+              "unverified"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "answer",
+          "citations"
+        ],
+        "title": "AnswerResponse",
+        "type": "object"
+      },
+      "Citation": {
+        "properties": {
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "quote"
+        ],
+        "title": "Citation",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "QuestionRequest": {
+        "properties": {
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "QuestionRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "NETI Next Agent",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/agent/health": {
+      "get": {
+        "operationId": "getAgentHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "const": "ok",
+                    "type": "string"
+                  },
+                  "title": "Response Getagenthealth",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/agent/v1/answers": {
+      "post": {
+        "operationId": "createAgentAnswer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Ошибка провайдера или формата ответа"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Веб-ответы выключены"
+          }
+        },
+        "summary": "Create Answer",
+        "tags": [
+          "answers"
+        ]
+      }
+    }
+  }
+}

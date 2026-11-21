@@ -3,4 +3,4 @@
 !uv.lock
 !src/
 !src/agent/
-!src/agent/*.py
+!src/agent/**/*.py
