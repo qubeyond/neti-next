@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import parse_answer
+from agent.domain.evidence import parse_answer
 
 NUMBER = re.compile(r"(?<!\d)\d{3,6}(?!\d)")
 AMOUNT = re.compile(

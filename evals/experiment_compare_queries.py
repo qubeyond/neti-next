@@ -8,7 +8,7 @@ from itertools import chain, zip_longest
 from pathlib import Path
 from time import sleep
 
-from agent.shared.config import _local_settings, _positive_int, _setting
+from agent.config import load_settings, positive_int, required
 from evals.compare_search import EVAL_DIR, read_jsonl, score, url_key
 from evals.experiment_domain_search import search
 from evals.experiment_page_context import passage
@@ -95,7 +95,8 @@ def answer_replay(replay_report: dict, reports: list[Path]) -> dict:
             for url, markdown in run.get("markdown", {}).items()
             if markdown
         )
-    budget = _positive_int(_local_settings(), "WEB_SOURCE_MAX_CHARS")
+
+    budget = positive_int(load_settings(), "WEB_SOURCE_MAX_CHARS")
     questions, gold = (
         {row["id"]: row for name in names for row in read_jsonl(EVAL_DIR / name)}
         for names in (
@@ -166,9 +167,10 @@ def main() -> None:
         report = replay(json.loads(args.baseline.read_text(encoding="utf-8")))
         print(json.dumps(report, ensure_ascii=False, indent=2))
         return
-    settings = _local_settings()
-    key = _setting(settings, "FIRECRAWL_API_KEY")
-    timeout = _positive_int(settings, "SEARCH_TIMEOUT_SECONDS")
+
+    settings = load_settings()
+    key = required(settings, "FIRECRAWL_API_KEY")
+    timeout = positive_int(settings, "SEARCH_TIMEOUT_SECONDS")
     rows = json.loads(args.baseline.read_text(encoding="utf-8"))["runs"]
     saved = {row["id"]: row["search"] for row in rows}
     calls = {}

@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
+	_ "github.com/lib/pq"
 )
 
 const (
@@ -24,13 +24,7 @@ const (
 	maxStoredBytes  = 64 << 20
 )
 
-var (
-	owners   = []byte("workspaces")
-	emails   = []byte("emails")
-	sessions = []byte("sessions")
-	stateKey = []byte("state")
-	errGone  = errors.New("Сессия завершена.")
-)
+var errGone = errors.New("Сессия завершена.")
 
 type profile struct {
 	ID           string `json:"id"`
@@ -48,8 +42,33 @@ type attachment struct {
 }
 
 type citation struct {
-	URL   string `json:"url"`
-	Quote string `json:"quote"`
+	URL          string       `json:"url"`
+	Quote        string       `json:"quote"`
+	Ref          int          `json:"ref,omitempty"`
+	AttachmentID string       `json:"attachment_id,omitempty"`
+	Region       *imageRegion `json:"region,omitempty"`
+}
+
+type calendarEvent struct {
+	Date     string `json:"date"`
+	Title    string `json:"title"`
+	Citation int    `json:"citation"`
+}
+
+type blockCell struct {
+	Value string `json:"value"`
+	Ref   int    `json:"ref"`
+}
+
+type chatBlock struct {
+	Kind     string         `json:"kind"`
+	Title    string         `json:"title"`
+	Columns  []string       `json:"columns,omitempty"`
+	Rows     [][]*blockCell `json:"rows,omitempty"`
+	Operator string         `json:"operator,omitempty"`
+	Operands []blockCell    `json:"operands,omitempty"`
+	Result   string         `json:"result,omitempty"`
+	Note     string         `json:"note,omitempty"`
 }
 
 type artifact struct {
@@ -66,19 +85,23 @@ type activity struct {
 }
 
 type message struct {
-	ID          string       `json:"id"`
-	Role        string       `json:"role"`
-	Text        string       `json:"text"`
-	Quote       string       `json:"quote,omitempty"`
-	Attachments []attachment `json:"attachments,omitempty"`
-	State       string       `json:"state,omitempty"`
-	Status      string       `json:"status,omitempty"`
-	Error       string       `json:"error,omitempty"`
-	Citations   []citation   `json:"citations,omitempty"`
-	Artifacts   []artifact   `json:"artifacts,omitempty"`
-	Activity    []activity   `json:"activity,omitempty"`
-	CreatedAt   time.Time    `json:"createdAt"`
-	Duration    int64        `json:"durationMs,omitempty"`
+	ID          string          `json:"id"`
+	Role        string          `json:"role"`
+	Text        string          `json:"text"`
+	Quote       string          `json:"quote,omitempty"`
+	Attachments []attachment    `json:"attachments,omitempty"`
+	State       string          `json:"state,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	Problem     *problemDetails `json:"problem,omitempty"`
+	Citations   []citation      `json:"citations,omitempty"`
+	Blocks      []chatBlock     `json:"blocks,omitempty"`
+	Suggestions []string        `json:"suggestions,omitempty"`
+	Events      []calendarEvent `json:"events,omitempty"`
+	Artifacts   []artifact      `json:"artifacts,omitempty"`
+	Activity    []activity      `json:"activity,omitempty"`
+	CreatedAt   time.Time       `json:"createdAt"`
+	Duration    int64           `json:"durationMs,omitempty"`
 }
 
 type chatSummary struct {
@@ -104,6 +127,17 @@ type workspace struct {
 	Bytes    int                    `json:"bytes"`
 }
 
+func (state workspace) hasWorkingTurn() bool {
+	for _, chat := range state.Chats {
+		for _, message := range chat.Messages {
+			if message.State == "working" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type guestSession struct {
 	state   workspace
 	files   map[string][]byte
@@ -122,53 +156,47 @@ type identity struct {
 }
 
 type store struct {
-	db     *bolt.DB
+	db     *sql.DB
 	mu     sync.Mutex
 	guests map[string]*guestSession
 }
 
-func newStore(path string) (*store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	db, err := bolt.Open(path, 0600, &bolt.Options{Timeout: time.Second})
+func newStore(dsn, legacyPath string) (*store, error) {
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, err
 	}
-	err = db.Update(func(tx *bolt.Tx) error {
-		for _, key := range [][]byte{owners, emails, sessions} {
-			if _, err := tx.CreateBucketIfNotExists(key); err != nil {
-				return err
-			}
-		}
-		return tx.Bucket(owners).ForEachBucket(func(key []byte) error {
-			bucket := tx.Bucket(owners).Bucket(key)
-			state, err := readWorkspace(bucket)
-			if err != nil {
-				return err
-			}
-			changed := false
-			for _, chat := range state.Chats {
-				for index := range chat.Messages {
-					item := &chat.Messages[index]
-					if item.State == "working" {
-						item.State = "failed"
-						item.Error = "Сервис перезапустился. Повторите запрос."
-						changed = true
-					}
-				}
-			}
-			if changed {
-				return putJSON(bucket, stateKey, state)
-			}
-			return nil
-		})
-	})
-	if err != nil {
+	db.SetMaxOpenConns(12)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	s := &store{db: db, guests: make(map[string]*guestSession)}
+	if err := s.initialize(legacyPath); err != nil {
 		db.Close()
 		return nil, err
 	}
-	return &store{db: db, guests: make(map[string]*guestSession)}, nil
+	return s, nil
+}
+
+func (s *store) transaction(limit time.Duration, write bool, operation func(*sql.Tx) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	defer cancel()
+	options := sql.TxOptions{ReadOnly: !write}
+	if !write {
+		options.Isolation = sql.LevelRepeatableRead
+	}
+	tx, err := s.db.BeginTx(ctx, &options)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := operation(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *store) update(operation func(*sql.Tx) error) error {
+	return s.transaction(10*time.Second, true, operation)
 }
 
 func randomID() string {
@@ -182,46 +210,55 @@ func tokenKey(value string) string {
 	return hex.EncodeToString(digest[:])
 }
 
-func putJSON(bucket *bolt.Bucket, key []byte, value any) error {
-	data, err := json.Marshal(value)
+func readWorkspace(row *sql.Row) (workspace, error) {
+	var state workspace
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return state, errGone
+		}
+		return state, err
+	}
+	return state, json.Unmarshal(raw, &state)
+}
+
+func saveWorkspace(tx *sql.Tx, owner string, state workspace) error {
+	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	return bucket.Put(key, data)
-}
-
-func readWorkspace(bucket *bolt.Bucket) (workspace, error) {
-	var state workspace
-	if bucket == nil {
-		return state, errGone
-	}
-	err := json.Unmarshal(bucket.Get(stateKey), &state)
-	return state, err
+	_, err = tx.Exec("UPDATE backend.workspaces SET state = $1, has_working_turn = $2 WHERE id = $3", data, state.hasWorkingTurn(), owner)
+	return err
 }
 
 type blobs struct {
-	bucket *bolt.Bucket
-	files  map[string][]byte
+	tx    *sql.Tx
+	owner string
+	files map[string][]byte
 }
 
-func (storage blobs) get(id string) []byte {
-	if storage.bucket != nil {
-		return storage.bucket.Get([]byte(id))
+func (storage blobs) get(id string) ([]byte, error) {
+	if storage.tx == nil {
+		return storage.files[id], nil
 	}
-	return storage.files[id]
+	var data []byte
+	err := storage.tx.QueryRow("SELECT contents FROM backend.attachments WHERE owner = $1 AND id = $2", storage.owner, id).Scan(&data)
+	return data, err
 }
 
 func (storage blobs) put(id string, data []byte) error {
-	if storage.bucket != nil {
-		return storage.bucket.Put([]byte(id), data)
+	if storage.tx != nil {
+		_, err := storage.tx.Exec("INSERT INTO backend.attachments (owner, id, contents) VALUES ($1, $2, $3)", storage.owner, id, data)
+		return err
 	}
 	storage.files[id] = data
 	return nil
 }
 
 func (storage blobs) delete(id string) error {
-	if storage.bucket != nil {
-		return storage.bucket.Delete([]byte(id))
+	if storage.tx != nil {
+		_, err := storage.tx.Exec("DELETE FROM backend.attachments WHERE owner = $1 AND id = $2", storage.owner, id)
+		return err
 	}
 	delete(storage.files, id)
 	return nil
@@ -238,21 +275,20 @@ func (s *store) access(who identity, write bool, operation func(*workspace, blob
 		guest.expires = time.Now().Add(guestLifetime)
 		return operation(&guest.state, blobs{files: guest.files})
 	}
-	run := s.db.View
-	if write {
-		run = s.db.Update
-	}
-	return run(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(owners).Bucket([]byte(who.owner))
-		state, err := readWorkspace(bucket)
+	return s.transaction(10*time.Second, write, func(tx *sql.Tx) error {
+		query := "SELECT state FROM backend.workspaces WHERE id = $1"
+		if write {
+			query += " FOR UPDATE"
+		}
+		state, err := readWorkspace(tx.QueryRow(query, who.owner))
 		if err != nil {
 			return err
 		}
-		if err := operation(&state, blobs{bucket: bucket}); err != nil {
+		if err := operation(&state, blobs{tx: tx, owner: who.owner}); err != nil {
 			return err
 		}
 		if write {
-			return putJSON(bucket, stateKey, state)
+			return saveWorkspace(tx, who.owner, state)
 		}
 		return nil
 	})
@@ -267,16 +303,14 @@ func (s *store) authenticate(value string, guest bool) (identity, error) {
 		who := identity{owner: key, token: key, guest: true}
 		return who, s.access(who, false, func(*workspace, blobs) error { return nil })
 	}
-	var account session
-	err := s.db.View(func(tx *bolt.Tx) error {
-		raw := tx.Bucket(sessions).Get([]byte(key))
-		if raw == nil || json.Unmarshal(raw, &account) != nil || time.Now().After(account.Expires) ||
-			tx.Bucket(owners).Bucket([]byte(account.Owner)) == nil {
-			return errGone
-		}
-		return nil
-	})
-	return identity{owner: account.Owner, token: key}, err
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var owner string
+	err := s.db.QueryRowContext(ctx, "SELECT owner FROM backend.sessions WHERE token = $1 AND expires_at > now()", key).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = errGone
+	}
+	return identity{owner: owner, token: key}, err
 }
 
 func (s *store) newGuest() (string, error) {

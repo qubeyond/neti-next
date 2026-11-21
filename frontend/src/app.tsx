@@ -10,13 +10,15 @@ import { SidebarSimpleIcon } from '@phosphor-icons/react/dist/icons/SidebarSimpl
 import { SignInIcon } from '@phosphor-icons/react/dist/icons/SignIn'
 import { TrashIcon } from '@phosphor-icons/react/dist/icons/Trash'
 import { XIcon } from '@phosphor-icons/react/dist/icons/X'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorText, type FileItem, type Profile, type Session, type Theme } from './api'
 import { Composer, emptyDraft, type Draft } from './composer'
 import { ChatMessage } from './messages'
 import { AccountDialog, SettingsDialog } from './settings'
 import { Avatar, BrandMark, Modal } from './ui'
 import { useWorkspace } from './use-workspace'
+
+const DemoStudio = lazy(() => import('./demo-studio'))
 
 const prompts = [
   { label: 'Поступление', prompt: 'Какие ИТ-направления есть в НГТУ НЭТИ?', Icon: GraduationCapIcon, tone: 'lilac' },
@@ -34,12 +36,13 @@ type WorkspaceProps = {
   onGuest: () => void
   onLogin: () => void
   onProfile: (profile: Profile | null) => void
+  demoEnabled: boolean
 }
 
 type StagedUpload = { chat: string; session: Session; files: Map<File, FileItem> }
 type SendAttempt = { id: string; draft: Draft; chat: string }
 
-function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile }: WorkspaceProps) {
+function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile, demoEnabled }: WorkspaceProps) {
   const work = useWorkspace(guest, onProfile)
   const [compact, setCompact] = useState(() => matchMedia(compactViewport).matches)
   const [sidebar, setSidebar] = useState(!compact)
@@ -55,6 +58,7 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
   const thread = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
   const sending = useRef(false)
+  const draftScope = useRef(0)
   const staged = useRef<StagedUpload | null>(null)
   const attempt = useRef<SendAttempt | null>(null)
   const lastMessage = work.chat?.messages.at(-1)
@@ -96,6 +100,7 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
 
   function openChat(id: string | null) {
     if (sending.current || (id !== null && id === work.active)) return
+    draftScope.current++
     discardStaged()
     setDraft(emptyDraft)
     attempt.current = null
@@ -109,6 +114,20 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
 
   function updateDraft(change: Partial<Draft>) {
     setDraft((old) => ({ ...old, ...change }))
+  }
+
+  async function transcribe(audio: Blob) {
+    const scope = draftScope.current
+    const session = await work.startSession()
+    if (scope !== draftScope.current) return
+    const { text } = await api.transcribe(session, audio)
+    if (scope !== draftScope.current) return
+    setDraft((old) => {
+      const previous = old.text.trimEnd()
+      const combined = previous ? `${previous} ${text}` : text
+      return { ...old, text: combined }
+    })
+    input.current?.focus()
   }
 
   async function send() {
@@ -170,6 +189,15 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
     }
   }
 
+  async function cancel(id: string) {
+    if (!work.active || !work.session) return
+    try {
+      await api.cancel(work.session, work.active, id)
+    } catch (error) {
+      work.setNotice(errorText(error))
+    }
+  }
+
   async function removeChat() {
     if (!deleteTarget) return
     setDeleting(true)
@@ -215,6 +243,7 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
         </nav> : <p>Здесь появятся ваши диалоги.</p>}
       </div>
       <div className="sidebar-footer">
+        {demoEnabled && <a className="nav-button" href="#demo">Демо трассировки</a>}
         {profile && <button type="button" className="nav-button" disabled={busy} onClick={onGuest}><DetectiveIcon weight="duotone"/> {guest ? 'Вернуться в профиль' : 'Включить инкогнито'}</button>}
         <button type="button" className="nav-button" disabled={busy} onClick={() => setSettings(true)}><GearIcon weight="duotone"/> Настройки</button>
         <button type="button" className="profile-button" disabled={busy} onClick={profile && !guest ? () => setSettings(true) : profile ? onGuest : onLogin}>
@@ -239,7 +268,7 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
       }}>
         {work.active && work.chat ? <div className="thread-content" role="log" aria-label="История диалога" aria-live="polite">
           {work.session && work.chat.messages.map((item) => <ChatMessage key={item.id} item={item} chat={work.chat!.id} session={work.session!}
-            latest={item.id === lastMessage?.id} animate={item.id === animate} onQuote={quote} onRetry={() => { void retry(item.id) }}/>)}
+            latest={item.id === lastMessage?.id} animate={item.id === animate} onQuote={quote} onSuggestion={(text) => { updateDraft({ text }); input.current?.focus() }} onRetry={() => { void retry(item.id) }} onCancel={() => { void cancel(item.id) }}/>)}
         </div> : work.active ? <div className="thread-loading"><span className="spinner"/> Открываем диалог…</div> : <section className="welcome">
           <BrandMark className="welcome-mark"/>
           <h1>Что хотите узнать<br/>о вузах Новосибирска?</h1>
@@ -253,7 +282,7 @@ function Workspace({ profile, guest, theme, onTheme, onGuest, onLogin, onProfile
       </div>
       <div className="composer-dock">
         {work.notice && <div className="workspace-notice" role="alert"><span>{work.notice}</span><button type="button" className="mini-button" aria-label="Убрать уведомление" onClick={() => work.setNotice('')}><XIcon/></button></div>}
-        <Composer draft={draft} update={updateDraft} inputRef={input} disabled={busy} pending={Boolean(work.waiting)} guest={guest} onSubmit={() => { void send() }}/>
+        <Composer draft={draft} update={updateDraft} inputRef={input} disabled={busy} pending={Boolean(work.waiting)} guest={guest} onTranscribe={transcribe} onSubmit={() => { void send() }}/>
       </div>
     </main>
     {settings && <SettingsDialog profile={guest ? null : profile} theme={theme} onTheme={onTheme} onProfile={onProfile}
@@ -274,6 +303,22 @@ export function App() {
   const [guestMode, setGuestMode] = useState(false)
   const [showAuth, setShowAuth] = useState(false)
   const [authRead, setAuthRead] = useState(false)
+  const [demoEnabled, setDemoEnabled] = useState(false)
+  const [isDemo, setIsDemo] = useState(() => location.hash === '#demo')
+
+  useEffect(() => {
+    const update = () => setIsDemo(location.hash === '#demo')
+    window.addEventListener('hashchange', update)
+    return () => window.removeEventListener('hashchange', update)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    if (profile && !guestMode) api.demoAccess().then(() => {
+      if (active) setDemoEnabled(true)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [profile, guestMode])
   const [guestTheme, setGuestTheme] = useState<Theme>(() => matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 
   useEffect(() => {
@@ -290,14 +335,18 @@ export function App() {
 
   const accountChanged = useCallback((next: Profile | null) => {
     setProfile(next)
+    setDemoEnabled(false)
     if (!next) setGuestMode(false)
   }, [])
 
   if (!authRead) return <div className="app-loading" role="status"><BrandMark/><span>Открываем NETI Next…</span></div>
 
+  if (isDemo && demoEnabled && !guest) return <Suspense fallback={<div className="app-loading" role="status">Открываем трассировку…</div>}><DemoStudio account={profile.name}/></Suspense>
+  if (isDemo && !guest) return <main className="demo-studio"><a href="#">Вернуться в кабинет</a><p>Экран доступен назначенному демо-аккаунту.</p></main>
+
   return <>
-    <Workspace key={(profile?.id ?? 'anonymous') + ':' + guest} profile={profile} guest={guest} theme={theme} onTheme={setGuestTheme}
+    <Workspace demoEnabled={demoEnabled && !guest} key={(profile?.id ?? 'anonymous') + ':' + guest} profile={profile} guest={guest} theme={theme} onTheme={setGuestTheme}
       onGuest={() => setGuestMode(!guestMode)} onLogin={() => setShowAuth(true)} onProfile={accountChanged}/>
-    {showAuth && <AccountDialog initial="login" onClose={() => setShowAuth(false)} onAccount={(account) => { setGuestMode(false); setProfile(account); setShowAuth(false) }}/>}
+    {showAuth && <AccountDialog initial="login" onClose={() => setShowAuth(false)} onAccount={(account) => { setGuestMode(false); accountChanged(account); setShowAuth(false) }}/>}
   </>
 }

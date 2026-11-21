@@ -10,8 +10,10 @@ import { QuotesIcon } from '@phosphor-icons/react/dist/icons/Quotes'
 import { WarningIcon } from '@phosphor-icons/react/dist/icons/Warning'
 import { WrenchIcon } from '@phosphor-icons/react/dist/icons/Wrench'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { api, errorText, safeURL, type Artifact, type FileItem, type Message, type Session } from './api'
+import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
 import { BrandMark, displayDuration } from './ui'
+import { downloadDeadline } from './calendar'
+import { ChatBlockView } from './chat-blocks'
 
 const MarkdownContent = lazy(() => import('./markdown-content'))
 
@@ -74,6 +76,66 @@ function AttachedFile({ file, session, chat }: { file: FileItem; session: Sessio
   </div>
 }
 
+function sourceLocation(citation: Citation) {
+  const address = safeURL(citation.url)
+  if (!address) return undefined
+  const url = new URL(address)
+  if (url.hash.includes(':~:') || url.pathname.toLowerCase().endsWith('.pdf')) return url.href
+  const quote = Array.from(citation.quote.trim()).slice(0, 220).join('')
+  if (quote.length < 12) return url.href
+  url.hash += ':~:text=' + encodeURIComponent(quote).replaceAll('-', '%2D')
+  return url.href
+}
+
+function CitationPhoto({ citation, session, chat }: { citation: Citation; session: Session; chat: string }) {
+  const [photo, setPhoto] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const source = useRef('')
+  const active = useRef(true)
+
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
+      if (source.current) URL.revokeObjectURL(source.current)
+      source.current = ''
+    }
+  }, [])
+
+  async function reveal() {
+    if (!citation.attachment_id) return
+    setLoading(true)
+    setError('')
+    try {
+      const blob = await api.download(session, chat, citation.attachment_id)
+      if (!active.current) return
+      source.current = URL.createObjectURL(blob)
+      setPhoto(source.current)
+    } catch (cause) {
+      if (active.current) setError(errorText(cause))
+    } finally {
+      if (active.current) setLoading(false)
+    }
+  }
+
+  const box = citation.region
+  return <>
+    {!photo && <button type="button" className="soft-button" disabled={loading} onClick={() => { void reveal() }}>Показать фото</button>}
+    {error && <small role="alert">{error}</small>}
+    {photo && <figure className="source-photo">
+      <div>
+        <img src={photo} alt="Фото, которое вы приложили"/>
+        {box && <span className="source-highlight" aria-hidden="true" style={{
+          left: `${box.x * 100}%`, top: `${box.y * 100}%`,
+          width: `${box.width * 100}%`, height: `${box.height * 100}%`,
+        }}/>}
+      </div>
+      {box && <figcaption>Строка, совпавшая с цитатой</figcaption>}
+    </figure>}
+  </>
+}
+
 function RunActivity({ item }: { item: Message }) {
   const working = item.state === 'working'
   const [clock, setClock] = useState(() => Date.now())
@@ -122,14 +184,27 @@ type Props = {
   latest: boolean
   animate: boolean
   onQuote: (text: string, question: boolean) => void
+  onSuggestion: (text: string) => void
   onRetry: () => void
+  onCancel: () => void
 }
 
-export function ChatMessage({ item, chat, session, latest, animate, onQuote, onRetry }: Props) {
+export function ChatMessage({ item, chat, session, latest, animate, onQuote, onSuggestion, onRetry, onCancel }: Props) {
   const body = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState('')
   const [copyState, setCopyState] = useState('')
   const assistant = item.role === 'assistant'
+
+  const evidence = item.citations ?? []
+  const sourceIDs = new Map<number, string>()
+  const citationGroups = new Map<string, [Citation, ...Citation[]]>()
+  for (const [index, citation] of evidence.entries()) {
+    const id = (citation.ref ? sourceIDs.get(citation.ref) : undefined) ?? `evidence-${item.id}-${index}`
+    if (citation.ref) sourceIDs.set(citation.ref, id)
+    const group = citationGroups.get(id)
+    if (group) group.push(citation)
+    else citationGroups.set(id, [citation])
+  }
 
   const selectText = useCallback(() => {
     const picked = window.getSelection()
@@ -166,23 +241,49 @@ export function ChatMessage({ item, chat, session, latest, animate, onQuote, onR
     <div className={'assistant-content' + (animate && item.state === 'complete' ? ' reveal' : '')}>
       <header className="message-heading"><strong>NETI Next</strong></header>
       {!!item.activity?.length && <RunActivity item={item}/>}
-      {item.state === 'working' && <div className="thinking-shimmer" aria-hidden="true"><span/><span/></div>}
+      {item.state === 'working' && <>
+        <div className="thinking-shimmer" aria-hidden="true"><span/><span/></div>
+        {latest && <button type="button" className="soft-button" onClick={onCancel}>Остановить</button>}
+      </>}
       {item.state === 'failed' && <div className="answer-error">
-        <p role="alert"><WarningIcon aria-hidden="true"/> {item.error ?? 'Не удалось получить ответ.'}</p>
+        <p role="alert"><WarningIcon aria-hidden="true"/> {item.problem?.detail ?? item.error ?? 'Не удалось получить ответ.'}</p>
         {latest && <button type="button" className="soft-button" onClick={onRetry}><ArrowClockwiseIcon/> Повторить запрос</button>}
       </div>}
       {item.state === 'complete' && <>
-        {item.status !== 'answered' && <span className="answer-status">{item.status === 'partial' ? 'Частичный ответ' : 'Недостаточно подтверждений'}</span>}
+        {item.status !== 'answered' && <span className="answer-status">{item.status === 'partial' ? 'Частичный ответ' : item.status === 'clarification' ? 'Уточнение' : 'Недостаточно подтверждений'}</span>}
         <div ref={body} className="markdown" onMouseUp={selectText} onKeyUp={selectText}>
-          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text}/></Suspense>
+          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text} sourceIDs={sourceIDs}/></Suspense>
         </div>
+        {item.blocks?.map((block, index) => <ChatBlockView key={index} block={block} sources={sourceIDs}/>)}
+        {!!item.suggestions?.length && <div className="deadline-actions" aria-label="Варианты уточнения">
+          {item.suggestions.map((suggestion) => <button className="soft-button" type="button" key={suggestion}
+            onClick={() => onSuggestion(suggestion)}>{suggestion}</button>)}
+        </div>}
         {!!item.artifacts?.length && <div className="artifact-grid">{item.artifacts.map((artifact, index) => <ArtifactCard item={artifact} key={index}/>)}</div>}
-        {!!item.citations?.length && <section className="source-list" aria-label="Источники ответа">
-          {item.citations.map((citation, index) => {
-            const url = safeURL(citation.url)
-            return <details className="source" key={index}>
-              <summary><span className="source-index">{index + 1}</span><span>{url ? new URL(url).hostname : 'Источник'}</span></summary>
-              <div><blockquote>{citation.quote}</blockquote>{url && <a href={url} target="_blank" rel="noreferrer">К оригиналу <ArrowUpRightIcon/></a>}</div>
+        {!!item.events?.length && <div className="deadline-actions" aria-label="Сроки для календаря">
+          {item.events.map((event, index) => {
+            const group = evidence.filter((source) => source.ref === event.citation && source.url)
+            const citation = group[0] && { ...group[0], quote: group.map((source) => source.quote).join('\n') }
+            return citation && <button type="button" className="soft-button" key={index}
+              onClick={() => downloadDeadline(event, citation, `${item.id}-${index}`)}>
+              <DownloadIcon aria-hidden="true"/> {event.title} · {event.date.split('-').reverse().join('.')} (.ics)
+            </button>
+          })}
+        </div>}
+        {!!evidence.length && <section className="source-list" aria-label="Источники ответа">
+          {Array.from(citationGroups, ([id, group], index) => {
+            const first = group[0]
+            const url = safeURL(first.url)
+            return <details className="source" id={id} key={id}>
+              <summary><span className="source-index">{first.ref ?? index + 1}</span><span>{first.attachment_id ? 'Ваше фото' : url ? new URL(url).hostname : 'Источник'}</span></summary>
+              {group.map((citation, position) => {
+                const location = sourceLocation(citation)
+                return <div key={position}>
+                  <blockquote>{citation.quote}</blockquote>
+                  {location && <a href={location} target="_blank" rel="noreferrer">{location === url ? 'К оригиналу' : 'Открыть цитату в источнике'} <ArrowUpRightIcon/></a>}
+                  {citation.attachment_id && <CitationPhoto citation={citation} session={session} chat={chat}/>}
+                </div>
+              })}
             </details>
           })}
         </section>}

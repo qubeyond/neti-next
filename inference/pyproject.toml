@@ -1,0 +1,17 @@
+[project]
+name = "neti-next-inference"
+version = "0.1.0"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "fastapi",
+    "httpx2>=2.16.2",
+    "openai>=3.57.0",
+    "prometheus-client>=0.26.0",
+    "pydantic-settings>=2.16.3",
+    "uvicorn",
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+typeCheckingMode = "standard"

@@ -1,4 +1,5 @@
 import { ArrowUpIcon } from '@phosphor-icons/react/dist/icons/ArrowUp'
+import { CameraIcon } from '@phosphor-icons/react/dist/icons/Camera'
 import { FileIcon } from '@phosphor-icons/react/dist/icons/File'
 import { MicrophoneIcon } from '@phosphor-icons/react/dist/icons/Microphone'
 import { PaperclipIcon } from '@phosphor-icons/react/dist/icons/Paperclip'
@@ -6,6 +7,7 @@ import { StopIcon } from '@phosphor-icons/react/dist/icons/Stop'
 import { WaveformIcon } from '@phosphor-icons/react/dist/icons/Waveform'
 import { XIcon } from '@phosphor-icons/react/dist/icons/X'
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { errorText } from './api'
 import { displayDuration } from './ui'
 
 export type Draft = { text: string; quote: string; files: File[] }
@@ -19,10 +21,12 @@ type Props = {
   pending: boolean
   guest: boolean
   onSubmit: () => void
+  onTranscribe: (audio: Blob) => Promise<void>
 }
 
-export function Composer({ draft, update, inputRef, disabled, pending, guest, onSubmit }: Props) {
+export function Composer({ draft, update, inputRef, disabled, pending, guest, onSubmit, onTranscribe }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const mounted = useRef(true)
@@ -31,6 +35,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
   const [startingMic, setStartingMic] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [warning, setWarning] = useState('')
+  const [transcribing, setTranscribing] = useState(false)
 
   useEffect(() => {
     mounted.current = true
@@ -103,8 +108,12 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
           return
         }
         const mime = (device.mimeType || chunks[0]?.type || 'audio/webm').split(';')[0]
-        const suffix = mime === 'audio/mp4' ? 'm4a' : mime === 'audio/ogg' ? 'ogg' : 'webm'
-        attach([new File(chunks, 'Голосовое сообщение.' + suffix, { type: mime })])
+        setTranscribing(true)
+        void onTranscribe(new Blob(chunks, { type: mime })).catch((cause: unknown) => {
+          if (mounted.current) setWarning(errorText(cause))
+        }).finally(() => {
+          if (mounted.current) setTranscribing(false)
+        })
       }
       device.start(500)
       setElapsed(0)
@@ -118,7 +127,8 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
     }
   }
 
-  const submitEnabled = !disabled && !pending && recording === null && !startingMic && Boolean(draft.text.trim() || draft.files.length)
+  const exceedsTextLimit = Array.from(draft.text).length > 2000
+  const submitEnabled = !disabled && !pending && recording === null && !startingMic && !transcribing && !exceedsTextLimit && Boolean(draft.text.trim() || draft.files.length)
 
   return (
     <div className="composer-area">
@@ -142,7 +152,18 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
           <div className="compose-tools">
             <input hidden multiple ref={fileInput} type="file" aria-label="Файлы" onChange={(event) => { attach(Array.from(event.target.files ?? [])); event.target.value = '' }} />
             <button type="button" className="icon-button tool-button" disabled={disabled || draft.files.length >= 5} aria-label="Прикрепить файлы" title="Прикрепить файлы" onClick={() => fileInput.current?.click()}><PaperclipIcon/></button>
-            <button type="button" className={'icon-button tool-button' + (recording !== null ? ' recording' : '')} disabled={disabled || startingMic || (recording === null && draft.files.length >= 5)}
+            <input hidden ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" aria-label="Фото документа"
+              onChange={(event) => {
+                const photo = event.target.files?.[0]
+                if (photo) {
+                  attach([photo])
+                  if (photo.size > 0 && photo.size <= 16 * 1024 * 1024 && !draft.text.trim()) update({ text: 'Что указано на фото?' })
+                }
+                event.target.value = ''
+              }} />
+            <button type="button" className="icon-button tool-button" disabled={disabled || draft.files.length >= 5}
+              aria-label="Сфотографировать документ" title="Сфотографировать документ" onClick={() => cameraInput.current?.click()}><CameraIcon/></button>
+            <button type="button" className={'icon-button tool-button' + (recording !== null ? ' recording' : '')} disabled={disabled || startingMic || transcribing}
               aria-label={recording === null ? 'Записать аудио' : 'Остановить запись'} title={recording === null ? 'Записать аудио' : 'Остановить запись'} onClick={() => { void toggleRecording() }}>
               {recording === null ? <MicrophoneIcon/> : <StopIcon weight="fill"/>}
             </button>
@@ -152,7 +173,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, guest, on
         </div>
       </form>
       <p className={'composer-note' + (warning ? ' warning' : '')} role={warning ? 'alert' : undefined}>
-        {warning || (draft.files.length ? 'Файлы сохранятся в диалоге. Агент пока отвечает на текст.' :
+        {warning || (exceedsTextLimit ? 'Сократите текст до 2000 символов, чтобы отправить сообщение.' : transcribing ? 'Расшифровываем запись…' : draft.files.length ? 'Можно распознать голос, PDF или изображение.' :
           guest ? 'Гостевой диалог исчезнет после закрытия или обновления страницы.' : 'Агент может ошибаться. Проверяйте важное по источникам.')}
       </p>
     </div>

@@ -2,8 +2,8 @@
 
 import json
 
-from agent.modules.answers.domain.evidence import parse_answer, prepare_sources
-from agent.modules.answers.domain.sources import SearchResult
+from agent.domain.evidence import parse_answer, prepare_sources
+from agent.domain.sources import SearchResult
 
 
 def test_prepare_sources_preserves_rank_after_skipping_empty_result():

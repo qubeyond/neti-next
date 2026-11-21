@@ -8,8 +8,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.shared.config import _local_settings, _setting
+from agent.config import load_settings
 from evals.experiment_decisions import decide
+from evals.provider_settings import routerai_key
 from evals.run_web_baseline import distribution
 
 OPTIONS = {
@@ -104,8 +105,8 @@ def main() -> None:
     args = parser.parse_args()
     cases = make_cases({"firecrawl": args.firecrawl, "exa": args.exa})
     models = ("rules", "jev", "liquid") if args.live else ("rules",)
-    settings = _local_settings()
-    key = _setting(settings, "ROUTERAI_API_KEY") if args.live else ""
+    settings = load_settings()
+    key = routerai_key(settings) if args.live else ""
     interface = os.getenv("ROUTERAI_NETWORK_INTERFACE", "") or settings.get(
         "ROUTERAI_NETWORK_INTERFACE", ""
     )

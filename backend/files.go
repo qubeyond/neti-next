@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"errors"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"path"
 	"strings"
@@ -31,40 +35,10 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) error {
 		return problem(422, "Ожидается файл в поле file.")
 	}
 	defer r.Body.Close()
-	if part.FormName() != "file" || part.FileName() == "" {
-		return problem(422, "Ожидается файл в поле file.")
-	}
-	payload, err := io.ReadAll(io.LimitReader(part, maxFileBytes+1))
+	file, payload, err := readAttachmentPart(part)
 	if err != nil {
 		return err
 	}
-	if len(payload) > maxFileBytes {
-		return problem(413, "Размер файла превышает 16 МБ.")
-	}
-	if len(payload) == 0 {
-		return problem(422, "Файл пуст.")
-	}
-	name := path.Base(strings.ReplaceAll(part.FileName(), "\\", "/"))
-	name = strings.TrimSpace(strings.Map(func(c rune) rune {
-		if unicode.IsControl(c) {
-			return -1
-		}
-		return c
-	}, name))
-	if name == "" || name == "." || name == ".." || name == "/" || len([]rune(name)) > 180 {
-		return problem(422, "Некорректное имя файла.")
-	}
-	content := http.DetectContentType(payload)
-	if content == "video/webm" && part.Header.Get("Content-Type") == "audio/webm" {
-		content = "audio/webm"
-	}
-	if content == "video/mp4" && part.Header.Get("Content-Type") == "audio/mp4" {
-		content = "audio/mp4"
-	}
-	if content == "application/ogg" {
-		content = "audio/ogg"
-	}
-	file := attachment{ID: randomID(), Name: name, MIME: content, Size: len(payload)}
 	err = s.store.access(who, true, func(state *workspace, storage blobs) error {
 		item, err := chatByID(state, r.PathValue("chat"))
 		if err != nil {
@@ -95,6 +69,54 @@ func (s *server) upload(w http.ResponseWriter, r *http.Request) error {
 	return err
 }
 
+func readAttachmentPart(part *multipart.Part) (attachment, []byte, error) {
+	if part.FormName() != "file" || part.FileName() == "" {
+		return attachment{}, nil, problem(422, "Ожидается файл в поле file.")
+	}
+	payload, err := io.ReadAll(io.LimitReader(part, maxFileBytes+1))
+	if err != nil {
+		return attachment{}, nil, err
+	}
+	if len(payload) > maxFileBytes {
+		return attachment{}, nil, problem(413, "Размер файла превышает 16 МБ.")
+	}
+	if len(payload) == 0 {
+		return attachment{}, nil, problem(422, "Файл пуст.")
+	}
+	name := path.Base(strings.ReplaceAll(part.FileName(), "\\", "/"))
+	name = strings.TrimSpace(strings.Map(func(c rune) rune {
+		if unicode.IsControl(c) {
+			return -1
+		}
+		return c
+	}, name))
+	if name == "" || name == "." || name == ".." || name == "/" || len([]rune(name)) > 180 {
+		return attachment{}, nil, problem(422, "Некорректное имя файла.")
+	}
+	content := http.DetectContentType(payload)
+	if content == "video/webm" && part.Header.Get("Content-Type") == "audio/webm" {
+		content = "audio/webm"
+	}
+	if content == "video/mp4" && part.Header.Get("Content-Type") == "audio/mp4" {
+		content = "audio/mp4"
+	}
+	if content == "application/ogg" {
+		content = "audio/ogg"
+	}
+	if content == "image/jpeg" || content == "image/png" {
+		imageSize, _, err := image.DecodeConfig(bytes.NewReader(payload))
+		if err != nil {
+			return attachment{}, nil, problem(422, "Изображение не удалось прочитать.")
+		}
+		const maxPixels = 25_000_000
+		if imageSize.Height <= 0 || imageSize.Width <= 0 || imageSize.Width > maxPixels/imageSize.Height {
+			return attachment{}, nil, problem(413, "Разрешение изображения превышает лимит.")
+		}
+	}
+	file := attachment{ID: randomID(), Name: name, MIME: content, Size: len(payload)}
+	return file, payload, nil
+}
+
 func (s *server) attachmentData(who identity, chatID, fileID string) (attachment, []byte, error) {
 	var file attachment
 	var payload []byte
@@ -108,8 +130,9 @@ func (s *server) attachmentData(who identity, chatID, fileID string) (attachment
 		if !exists {
 			return problem(404, "Вложение не найдено.")
 		}
-		payload = bytes.Clone(storage.get(file.ID))
-		return nil
+		data, err := storage.get(file.ID)
+		payload = append([]byte(nil), data...)
+		return err
 	})
 	return file, payload, err
 }
@@ -125,7 +148,7 @@ func (s *server) download(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("Content-Type", file.MIME)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": file.Name}))
-	http.ServeContent(w, r, file.Name, time.Time{}, bytes.NewReader(payload))
+	http.ServeContent(&fileResponseWriter{ResponseWriter: w}, r, file.Name, time.Time{}, bytes.NewReader(payload))
 	return nil
 }
 
@@ -161,4 +184,27 @@ func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(204)
 	}
 	return err
+}
+
+type fileResponseWriter struct {
+	http.ResponseWriter
+	failed bool
+}
+
+func (w *fileResponseWriter) WriteHeader(status int) {
+	if status >= 400 {
+		w.failed = true
+		w.Header().Del("Content-Disposition")
+		w.Header().Del("Content-Length")
+		writeError(w.ResponseWriter, problem(status, "Не удалось вернуть запрошенную часть файла."))
+		return
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *fileResponseWriter) Write(data []byte) (int, error) {
+	if w.failed {
+		return len(data), nil
+	}
+	return w.ResponseWriter.Write(data)
 }

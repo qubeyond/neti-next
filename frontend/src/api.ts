@@ -1,8 +1,16 @@
 export type Theme = 'light' | 'dark'
 export type Profile = { id: string; name: string; email: string; theme: Theme; instructions: string }
 export type FileItem = { id: string; name: string; mime: string; size: number }
-export type Citation = { url: string; quote: string }
+export type ImageRegion = { x: number; y: number; width: number; height: number }
+export type Citation = { url: string; quote: string; ref?: number; attachment_id?: string; region?: ImageRegion }
+export type CalendarEvent = { title: string; date: string; citation: number }
 export type Artifact = { kind: 'image' | 'link' | 'quote' | 'audio' | 'file'; title: string; url?: string; text?: string }
+export type BlockCell = { value: string; ref: number }
+export type ChatBlock =
+  | { kind: 'table' | 'office' | 'edition'; title: string; columns: string[]; rows: (BlockCell | null)[][] }
+  | { kind: 'calculation'; title: string; operator: string; operands: [BlockCell, BlockCell]; result: string }
+  | { kind: 'gap'; title: string; note: string }
+
 export type Activity = { kind: string; label: string; elapsedMs: number }
 export type Message = {
   id: string
@@ -11,9 +19,13 @@ export type Message = {
   quote?: string
   attachments?: FileItem[]
   state?: 'working' | 'complete' | 'failed'
-  status?: 'answered' | 'partial' | 'unverified'
+  status?: 'answered' | 'partial' | 'unverified' | 'clarification'
   error?: string
+  problem?: ProblemDetails
   citations?: Citation[]
+  events?: CalendarEvent[]
+  blocks?: ChatBlock[]
+  suggestions?: string[]
   artifacts?: Artifact[]
   activity?: Activity[]
   createdAt: string
@@ -21,13 +33,16 @@ export type Message = {
 }
 export type ChatSummary = { id: string; title: string; updatedAt: string }
 export type Chat = ChatSummary & { messages: Message[] }
+export type DemoTurn = { role: 'user' | 'assistant'; text: string }
 export type Session = { guestToken?: string }
 export type ChatEvent = { type: 'chat.updated' | 'chats.updated'; chatId?: string }
+
+type ProblemDetails = { type: string; title: string; status: number; detail: string; request_id: string }
 
 const prefix = '/api/v1'
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly requestId?: string) {
     super(message)
   }
 }
@@ -44,7 +59,7 @@ async function request(path: string, session?: Session, options: RequestInit = {
   if (!response.ok) {
     const fallback = response.status === 413 ? 'Размер файла превышает лимит.' : 'Сервер не смог выполнить запрос.'
     const body = await response.json().catch(() => null)
-    throw new ApiError(response.status, typeof body?.detail === 'string' ? body.detail : fallback)
+    throw new ApiError(response.status, typeof body?.detail === 'string' ? body.detail : fallback, response.headers.get('X-Request-ID') ?? (typeof body?.request_id === 'string' ? body.request_id : undefined))
   }
   return response
 }
@@ -58,6 +73,17 @@ const filePath = (chat: string, file: string) => chatPath(chat) + '/files/' + en
 const payload = (body: unknown, method = 'POST') => ({ method, body: JSON.stringify(body) })
 
 export const api = {
+  transcribe: (session: Session, audio: Blob) => json<{ text: string }>('/drafts/transcribe', session, {
+    method: 'POST', body: audio, headers: { 'Content-Type': audio.type },
+  }),
+  demoAccess: () => request('/demo'),
+  demoRun: (question: string, history: DemoTurn[], file: File | null, signal: AbortSignal) => {
+    if (!file) return request('/demo/runs', undefined, { ...payload({ question, history }), signal })
+    const body = new FormData()
+    body.append('input', JSON.stringify({ question, history }))
+    body.append('file', file)
+    return request('/demo/runs', undefined, { method: 'POST', body, signal })
+  },
   profile: () => json<Profile>('/profile'),
   auth: (mode: 'login' | 'register', values: { email: string; password: string; name?: string }) =>
     json<Profile>('/auth/' + mode, undefined, payload(values)),
@@ -76,6 +102,8 @@ export const api = {
     json<{ messageId: string }>(chatPath(id) + '/messages', session, payload(input)),
   retry: (session: Session, id: string, message: string) =>
     json<{ messageId: string }>(chatPath(id) + '/messages/' + encodeURIComponent(message) + '/retry', session, { method: 'POST' }),
+  cancel: (session: Session, id: string, message: string) =>
+    request(chatPath(id) + '/messages/' + encodeURIComponent(message) + '/cancel', session, { method: 'POST' }),
   upload: (session: Session, id: string, file: File) => {
     const body = new FormData()
     body.append('file', file)

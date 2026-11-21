@@ -1,18 +1,34 @@
 """Собирает сценарии агента из адаптеров ввода-вывода."""
 
-import os
+from dataclasses import replace
 from functools import partial
 
-from .modules.answers.application.generation import (
+from agent.application.audit import Verification, audit, verify_answer
+from agent.application.context import Turn, resolve
+from agent.application.generation import (
     answer_from_search as generate_answer,
 )
-from .modules.answers.application.service import AnswerService
-from .modules.answers.domain.sources import SearchResult
-from .modules.answers.infrastructure.firecrawl import read_document
-from .modules.answers.infrastructure.query_rewrite import rewrite_query
-from .modules.answers.infrastructure.routerai import ask
-from .modules.answers.infrastructure.search import make_searcher
-from .shared.config import _local_settings, _positive_int, _setting
+from agent.application.service import AnswerService
+from agent.application.skills import select_skills
+from agent.config import (
+    PROMPTS_DIRECTORY,
+    SKILLS_DIRECTORY,
+    flag,
+    load_settings,
+    optional,
+    positive_int,
+    required,
+    search_limit,
+)
+from agent.domain.grounding import check_answer, is_truncated
+from agent.domain.query import information_question, reference_text
+from agent.domain.sources import SearchResult
+from agent.providers.document_cache import cached_document
+from agent.providers.firecrawl import read_document
+from agent.providers.inference import ask
+from agent.providers.query_rewrite import rewrite_query
+from agent.providers.search import make_searcher
+from agent.runtime import DEADLINE, REQUEST_ID, deadline, phase, request_id
 
 
 def answer_from_search(
@@ -24,44 +40,234 @@ def answer_from_search(
     response_format: dict | None = None,
     prompt_suffix: str = "",
     preserve_relevant_clause: bool = True,
+    attachment_text: str = "",
+    image_source: dict | None = None,
+    settings: dict[str, str] | None = None,
 ) -> dict:
-    settings = _local_settings()
+    settings = load_settings() if settings is None else settings
 
     return generate_answer(
         question,
         results,
-        complete=ask,
-        system_prompt=lambda: _setting(settings, "WEB_SYSTEM_PROMPT"),
-        source_limit=_positive_int(settings, "WEB_SOURCE_MAX_CHARS"),
+        complete=partial(ask, settings=settings),
+        system_prompt=lambda: " ".join(
+            required(settings, name) for name in ("WEB_SYSTEM_PROMPT", "WEB_ANSWER_FORMAT_PROMPT")
+        ),
+        select=partial(
+            select_skills,
+            root=SKILLS_DIRECTORY,
+            overrides=PROMPTS_DIRECTORY / "skills",
+            legacy=partial(optional, settings),
+        ),
+        source_limit=positive_int(settings, "WEB_SOURCE_MAX_CHARS"),
         model=model,
         reasoning_enabled=reasoning_enabled,
         response_format=response_format,
         prompt_suffix=prompt_suffix,
         preserve_relevant_clause=preserve_relevant_clause,
+        attachment_text=attachment_text,
+        image_source=image_source,
     )
 
 
-def _enabled(settings: dict[str, str], name: str) -> bool:
-    return os.environ.get(name, settings.get(name, "false")).lower() == "true"
+def _verifier(settings: dict[str, str]) -> Verification | None:
+    if not flag(settings, "AGENT_VERIFY_ANSWERS"):
+        return None
+
+    return partial(
+        audit,
+        prompt=required(settings, "EVIDENCE_AUDIT_PROMPT"),
+        budget=positive_int(settings, "AGENT_AUDIT_MAX_TOKENS"),
+        settings=settings,
+    )
 
 
-def _make_service(settings: dict[str, str]) -> AnswerService:
-    read = _enabled(settings, "WEB_RECOVERY_READ")
-    search = _enabled(settings, "WEB_RECOVERY_SEARCH")
+def _make_service(settings: dict[str, str], attachment_text: str = "") -> AnswerService:
+    read = flag(settings, "WEB_RECOVERY_READ") and optional(settings, "FIRECRAWL_API_KEY")
+    search = flag(settings, "WEB_RECOVERY_SEARCH")
+    reader = partial(read_document, settings=settings)
+    dsn = optional(settings, "AGENT_CACHE_DSN")
+
+    cached = None
+
+    if dsn:
+        cache = partial(
+            cached_document,
+            dsn=dsn,
+            ttl=positive_int(settings, "AGENT_DOCUMENT_TTL_SECONDS"),
+            capacity=positive_int(settings, "AGENT_DOCUMENT_CACHE_CAPACITY"),
+        )
+        cached = partial(cache, read=None)
+        reader = partial(cache, read=reader)
 
     return AnswerService(
-        search=lambda question: make_searcher()(question),
-        generate=answer_from_search,
-        read=partial(read_document, settings=settings) if read else None,
-        backup_search=partial(make_searcher, "tavily") if search else None,
-        rewrite=rewrite_query if search else None,
-        source_limit=_positive_int(settings, "WEB_SOURCE_MAX_CHARS"),
-        search_limit=_positive_int(settings, "SEARCH_MAX_RESULTS") if search else 5,
+        verify=_verifier(settings),
+        search_provider=required(settings, "SEARCH_PROVIDER"),
+        backup_provider=optional(settings, "WEB_RECOVERY_PROVIDER") or "",
+        search=lambda question: make_searcher(settings=settings)(question),
+        generate=partial(
+            answer_from_search,
+            attachment_text=attachment_text,
+            settings=settings,
+            response_format={"type": "json_object"},
+        ),
+        regenerate=partial(
+            answer_from_search,
+            attachment_text=attachment_text,
+            settings=settings,
+            response_format={"type": "json_object"},
+            reasoning_enabled=flag(settings, "WEB_RECOVERY_REASONING"),
+        ),
+        repair=partial(
+            answer_from_search,
+            attachment_text=attachment_text,
+            settings=settings,
+            response_format={"type": "json_object"},
+            reasoning_enabled=False,
+            prompt_suffix=" Дай короткий ответ и верни только объект JSON.",
+        ),
+        cached=cached,
+        read=reader if read else None,
+        backup_search=(
+            partial(make_searcher, required(settings, "WEB_RECOVERY_PROVIDER"), settings=settings)
+            if search
+            else None
+        ),
+        rewrite=partial(rewrite_query, settings=settings) if search else None,
+        source_limit=positive_int(settings, "WEB_SOURCE_MAX_CHARS"),
+        search_limit=search_limit(settings),
+        recovery_limit=positive_int(settings, "WEB_RECOVERY_MAX_NEW_SOURCES"),
     )
 
 
-def answer_question(question: str, *, model: str | None = None) -> dict:
-    return _make_service(_local_settings()).answer(question, model=model)
+def answer_with_saved_search(
+    question: str, results: list[SearchResult], *, attachment_text: str = ""
+) -> dict:
+    service = _make_service(load_settings(), reference_text(attachment_text))
+    model_calls = []
+
+    def observe(generate):
+        def wrapped(question, sources, /, *, model=None):
+            result = generate(question, sources, model=model)
+
+            if result.get("generation") is not None:
+                model_calls.append(result["generation"])
+
+            return result
+
+        return wrapped
+
+    runner = replace(
+        service,
+        search=lambda _: list(results),
+        generate=observe(service.generate),
+        repair=observe(service.repair) if service.repair else None,
+        regenerate=observe(service.regenerate) if service.regenerate else None,
+    )
+    limit = positive_int(load_settings(), "AGENT_TURN_TIMEOUT_SECONDS")
+    token = DEADLINE.set(deadline("", limit))
+
+    try:
+        result = runner.answer(question)
+        return {**result, "generation_calls": model_calls}
+    finally:
+        DEADLINE.reset(token)
+
+
+def answer_question(
+    question: str,
+    *,
+    model: str | None = None,
+    attachment_text: str = "",
+    quoted_text: str = "",
+    history: list[Turn] | None = None,
+    image_source: dict | None = None,
+) -> dict:
+    settings = load_settings()
+    trace_token = None
+    time_token = None
+
+    if not REQUEST_ID.get():
+        trace_token = REQUEST_ID.set(request_id(""))
+
+    if DEADLINE.get() is None:
+        time_token = DEADLINE.set(
+            deadline("", positive_int(settings, "AGENT_TURN_TIMEOUT_SECONDS"))
+        )
+
+    try:
+        return _answer_turn(
+            question, model, attachment_text, quoted_text, history or [], settings, image_source
+        )
+    finally:
+        if time_token is not None:
+            DEADLINE.reset(time_token)
+
+        if trace_token is not None:
+            REQUEST_ID.reset(trace_token)
+
+
+def _answer_turn(
+    question: str,
+    model: str | None,
+    attachment_text: str,
+    quoted_text: str,
+    history: list[Turn],
+    settings: dict[str, str],
+    image_source: dict | None,
+) -> dict:
+    question = information_question(question)
+
+    if not question:
+        return {
+            "status": "clarification",
+            "answer": "Уточните, какую информацию о вузе вы ищете.",
+            "citations": [],
+        }
+
+    if image_source is not None:
+        return _answer_image(question, image_source, model=model, settings=settings)
+
+    attachment_text = "\n\n".join(
+        safe for part in (quoted_text, attachment_text) if (safe := reference_text(part))
+    )
+
+    with phase("resolve_context") as trace:
+        question, clarification = resolve(
+            question,
+            history or [],
+            prompt=required(settings, "TURN_CONTEXT_PROMPT"),
+            budget=positive_int(settings, "AGENT_CONTEXT_MAX_TOKENS"),
+        )
+        trace["decision"] = "clarification" if clarification else "ready"
+
+    if clarification:
+        return {"status": "clarification", "answer": clarification, "citations": []}
+
+    return _make_service(settings, attachment_text).answer(question, model=model)
+
+
+def _answer_image(question: str, image_source: dict, *, model: str | None, settings: dict) -> dict:
+    text = reference_text(image_source["text"])
+
+    if text:
+        result = answer_from_search(
+            question,
+            [],
+            model=model,
+            image_source={**image_source, "text": text},
+            settings=settings,
+            response_format={"type": "json_object"},
+        )
+
+        if result["status"] != "invalid" and not is_truncated(result):
+            return verify_answer(_verifier(settings), question, check_answer(question, result))
+
+    return {
+        "status": "unverified",
+        "answer": "По распознанному тексту фотографии не удалось подтвердить ответ.",
+        "citations": [],
+    }
 
 
 def recover_answer(
@@ -72,5 +278,5 @@ def recover_answer(
     model: str | None = None,
     settings: dict[str, str] | None = None,
 ) -> dict:
-    service = _make_service(_local_settings() if settings is None else settings)
+    service = _make_service(load_settings() if settings is None else settings)
     return service.recover(question, results, initial, model=model)

@@ -7,10 +7,11 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.shared.config import _local_settings, _setting
+from agent.config import load_settings
 from evals.experiment_decisions import decide
 from evals.experiment_read_fallback import read_pairs
 from evals.metrics import case_outcome
+from evals.provider_settings import routerai_key
 from evals.run_web_baseline import distribution, usage_summary
 
 KEEP = "Оставить черновик, если он достаточен или дополнительное действие вряд ли поможет."
@@ -113,8 +114,9 @@ def main() -> None:
         if control["id"] != rewrite_id
     ]
     trials.append((rewrite["control"], rewrite["rewrite"], "rewrite"))
-    settings = _local_settings()
-    key = _setting(settings, "ROUTERAI_API_KEY")
+
+    settings = load_settings()
+    key = routerai_key(settings)
     interface = os.getenv("ROUTERAI_NETWORK_INTERFACE", "") or settings.get(
         "ROUTERAI_NETWORK_INTERFACE", ""
     )

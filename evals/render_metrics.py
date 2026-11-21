@@ -71,16 +71,20 @@ def quality(report: dict) -> dict[str, str]:
     result = {}
     ranking = retrieval_metrics(searches, limit)
     eligible = ranking["eligible"]
+
     if eligible:
         for label, key in (
             (f"Hit Rate@{limit}", "hits"),
             (f"Complete Retrieval Rate@{limit}", "complete_hits"),
         ):
             result[label] = fraction(ranking[key], eligible)
+
         for label, key in (("Recall", "recall"), ("MRR", "mrr"), ("nDCG", "ndcg")):
             result[f"{label}@{limit}"] = f"{ranking[f'{key}@{limit}']:.4f}"
+
     if report["mode"] == "retrieval":
         return result
+
     answered = [item for item in rows if item["status"] in {"answered", "partial"}]
     result["Answer Coverage"] = fraction(len(answered), len(rows))
     citations = [citation for item in rows for citation in item.get("citations", [])]
@@ -88,9 +92,11 @@ def quality(report: dict) -> dict[str, str]:
     result["Citation Verbatim Rate"] = fraction(
         sum(citation["verified"] for citation in citations), len(citations) + malformed
     )
+
     if report["mode"] == "grounding":
         passed = sum(abstained(item) for item in rows)
         result["Abstention Pass Rate"] = fraction(passed, len(rows))
+
     if not report["llm_judge"]:
         return result
 
@@ -99,6 +105,7 @@ def quality(report: dict) -> dict[str, str]:
     correct_facts = [fact for fact in facts if fact["verdict"] == "correct"]
     context = [item["grade"]["facts"] for item in rows if item.get("grade", {}).get("facts")]
     context_facts = [fact for item in context for fact in item]
+
     result.update(
         {
             "Context Fact Coverage": fraction(
@@ -129,18 +136,39 @@ def quality(report: dict) -> dict[str, str]:
             ),
         }
     )
+
     return result
 
 
 def usage(report: dict, stage: str) -> tuple:
+    if report.get("pipeline") == "service" and (summary := report.get(stage)):
+        stats = summary["latency_ms"]
+        fields = [
+            summary.get(key) if summary.get(key) is not None else MISSING
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        ]
+
+        return (
+            summary["requests"],
+            summary["responses_with_usage"],
+            summary["responses_with_cost"],
+            *fields,
+            summary["reported_cost_rub"] or MISSING,
+            seconds(stats["median"]),
+            seconds(stats["p95"]),
+        )
+
     calls = [item.get(stage) for item in report["runs"] if item.get(f"{stage}_attempted")]
     entries = [call["usage"] for call in calls if call and call.get("usage")]
     cost = [Decimal(str(entry["cost"])) for entry in entries if entry.get("cost") is not None]
     totals = []
+
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         numbers = [entry[key] for entry in entries if type(entry.get(key)) is int]
         totals.append(sum(numbers) if numbers else MISSING)
+
     stats = distribution([call["latency_ms"] for call in calls if call])
+
     return (
         len(calls),
         len(entries),
@@ -159,6 +187,7 @@ def seconds(value: float | None) -> str:
 def latency(values: dict) -> str:
     if not values["samples"]:
         return MISSING
+
     return f"{seconds(values['median'])} / {seconds(values['p95'])}"
 
 
@@ -170,6 +199,7 @@ def run_metrics(report: dict) -> dict[str, str | int]:
     truncated = report["generation"]["finish_reasons"].get("length", 0)
     valid_grades = sum("correct" in row.get("grade", {}) for row in rows)
     grade_attempts = sum(row["judge_attempted"] for row in rows)
+
     return {
         "Кейсов": len(rows),
         "Новых вызовов поиска": search["requests"],
@@ -211,12 +241,14 @@ def robustness_table(report: dict) -> str:
         ),
     ]
     probe_outcomes = Counter(row["outcome"] for row in report["runs"] if row["variant"] == "probe")
+
     for outcome, label in (
         ("invalid", "Невалидные ответы на пробах"),
         ("generation_error", "Сбои генерации на пробах"),
         ("judge_failed", "Сбои оценщика на пробах"),
     ):
         rows.append((label, probe_outcomes[outcome]))
+
     for kind, label in (
         (
             "paraphrase",
@@ -229,6 +261,7 @@ def robustness_table(report: dict) -> str:
     ):
         if row := kinds.get(kind):
             rows.append((label, fraction(row["retained_strict_pass"], row["clean_strict_pass"])))
+
     for kind, outcome, label in (
         (
             "false-premise",
@@ -240,6 +273,7 @@ def robustness_table(report: dict) -> str:
     ):
         if row := kinds.get(kind):
             rows.append((label, fraction(row["outcomes"].get(outcome, 0), row["attempts"])))
+
     if (scope := kinds.get("scope-trap")) and "semantic_abstentions" in scope:
         rows.append(
             (
@@ -247,6 +281,7 @@ def robustness_table(report: dict) -> str:
                 fraction(scope["semantic_abstentions"], scope["attempts"]),
             )
         )
+
     for channel, data in sorted(channels.items()):
         rows.append(
             (
@@ -254,6 +289,7 @@ def robustness_table(report: dict) -> str:
                 fraction(data["marker_seen"], data["trials_with_output"]),
             )
         )
+
     return table(("Метрика", "Значение"), rows)
 
 
@@ -326,6 +362,7 @@ def render(
     )
 
     oracle = {}
+
     if e2e["llm_judge"] and reports.get("oracle", {}).get("llm_judge"):
         oracle = {
             row["id"]: case_outcome(row) == "strict_pass" for row in reports["oracle"]["runs"]
@@ -335,6 +372,7 @@ def render(
             for row in e2e["runs"]
             if row["id"] in oracle
         )
+
         add(
             "Парное сравнение",
             table(
@@ -350,13 +388,18 @@ def render(
 
     if e2e["llm_judge"]:
         with_urls, with_facts = [], []
+
         for row in e2e["runs"]:
             passed = case_outcome(row) == "strict_pass"
+
             if retrieval_metrics([row["search"]], limit)["complete_hits"]:
                 with_urls.append(passed)
+
             facts = row.get("grade", {}).get("facts", [])
+
             if facts and all(fact["in_context"] for fact in facts):
                 with_facts.append(passed)
+
         add(
             "Поиск и строгий зачёт",
             table(
@@ -381,13 +424,17 @@ def render(
         ("skills", "Срезы по навыкам"),
     ):
         group_runs = {}
+
         for row in e2e["runs"]:
             for group in (row["domain"],) if field == "domain" else row["skills"]:
                 group_runs.setdefault(group, []).append(row)
+
         slices = []
+
         for group, subset in sorted(group_runs.items()):
             results = quality({**e2e, "runs": subset})
             matched = [oracle[row["id"]] for row in subset if row["id"] in oracle]
+
             slices.append(
                 (
                     group,
@@ -397,6 +444,7 @@ def render(
                     fraction(sum(matched), len(matched)),
                 )
             )
+
         headers = (
             "Срез",
             "Кейсов e2e",
@@ -404,6 +452,7 @@ def render(
             "Строгий e2e",
             "Строгий oracle",
         )
+
         add(title, table(headers, slices))
 
     if "grounding" in reports:
@@ -431,7 +480,9 @@ def render(
         }
         for mode, report in reports.items()
     }
+
     add("Задержки", mode_table(timings["e2e"], timings))
+
     cost_headers = (
         "Режим",
         "Этап",
@@ -448,26 +499,49 @@ def render(
     calls = [
         (mode, label, *usage(report, stage))
         for mode, report in reports.items()
-        for stage, label in stage_names.items()
-        if any(row.get(f"{stage}_attempted") for row in report["runs"])
+        for stage, label in {
+            **stage_names,
+            "rewrite": "Переформулировка",
+            "audit": "Проверка доказательств",
+        }.items()
+        if report.get(stage, {}).get("requests")
+        or any(row.get(f"{stage}_attempted") for row in report["runs"])
     ]
+
     if robustness is not None:
         calls.extend(
             ("robustness", label, *usage(robustness, stage))
             for stage, label in stage_names.items()
             if any(row.get(f"{stage}_attempted") for row in robustness["runs"])
         )
+
     add("Вызовы RouterAI", table(cost_headers, calls))
+
+    if actions := e2e.get("recovery_actions"):
+        add(
+            "Восстановление",
+            table(
+                ("Действие", "Попыток"),
+                (
+                    ("Дочитывание", actions.get("read", 0)),
+                    ("Дополнительный поиск", actions.get("search", 0)),
+                ),
+            ),
+        )
+
     cost_totals = []
     cost_reports = reports if robustness is None else {**reports, "robustness": robustness}
+
     for mode, report in cost_reports.items():
         costs = [
             Decimal(stage["reported_cost_rub"])
-            for stage in (report["generation"], report["judge"])
-            if stage["reported_cost_rub"] is not None
+            for name in ("generation", "judge", "rewrite", "audit")
+            if (stage := report.get(name)) and stage["reported_cost_rub"] is not None
         ]
+
         if costs:
             cost_totals.append((mode, format(sum(costs).normalize(), "f")))
+
     add(
         "Суммарная стоимость RouterAI",
         table(("Режим", "Сумма usage.cost, ₽"), cost_totals),
@@ -490,6 +564,7 @@ def render(
             ),
         ),
     )
+
     return "\n\n".join(parts) + "\n"
 
 
@@ -497,6 +572,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Собрать Markdown-таблицы из результатов eval без API."
     )
+
     parser.add_argument(
         "run_dir",
         type=Path,
@@ -507,22 +583,30 @@ def main() -> None:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--answer-tokens", required=True, type=int)
     parser.add_argument("--robustness", type=Path, help="JSON из run_robustness.")
+
     args = parser.parse_args()
+
     try:
         reports = {}
+
         for mode in MODES:
             path = args.run_dir / f"{mode}.json"
+
             if mode != "e2e" and not path.exists():
                 continue
+
             report = json.loads(path.read_text(encoding="utf-8"))
             ids = {item["id"] for item in report["runs"]}
+
             if (
                 report["mode"] != mode
                 or len(ids) != len(report["runs"])
                 or len(ids) != report["cases"]
             ):
                 raise ValueError(f"{path.name}: режим, ID или число кейсов не совпадают")
+
             reports[mode] = report
+
         print(
             render(
                 reports,

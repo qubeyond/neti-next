@@ -5,8 +5,8 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.modules.answers.domain.evidence import parse_answer
-from agent.shared.errors import AgentError
+from agent.domain.errors import AgentError
+from agent.domain.evidence import parse_answer
 from evals.compare_search import EVAL_DIR, read_jsonl
 from evals.metrics import case_outcome
 from evals.run_web_baseline import grade, usage_summary

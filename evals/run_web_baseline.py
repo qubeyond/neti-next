@@ -1,3 +1,5 @@
+"""Сравнивает веб-поиск, генерацию и подтверждаемость ответов."""
+
 import argparse
 import json
 import sys
@@ -9,13 +11,12 @@ from pathlib import Path
 from statistics import median
 from time import perf_counter, sleep
 
-from agent.composition import answer_from_search
-from agent.modules.answers.domain.evidence import json_object
-from agent.modules.answers.infrastructure.routerai import ask
-from agent.modules.answers.infrastructure.search import make_searcher
-from agent.modules.answers.infrastructure.search_apis import _optional
-from agent.shared.config import _local_settings, _positive_int, _setting
-from agent.shared.errors import AgentError
+from agent.composition import answer_from_search, answer_with_saved_search
+from agent.config import load_settings, optional, positive_int, required
+from agent.domain.errors import AgentError
+from agent.domain.evidence import json_object
+from agent.providers.inference import ask
+from agent.providers.search import make_searcher
 from evals.compare_search import EVAL_DIR, read_jsonl, score, search_once
 from evals.metrics import breakdown, case_outcome
 from evals.splits import select_split
@@ -44,19 +45,25 @@ def _elapsed(started: float) -> int:
 
 def parse_judge_verdict(answer: str, expected_fact_count: int) -> dict:
     error = "Невалидный ответ оценщика."
+
     if not answer.strip():
         return {"error": error, "failure_kind": "empty_answer"}
+
     try:
         result = json_object(answer)
     except ValueError:
         return {"error": error, "failure_kind": "invalid_json"}
     except TypeError:
         return {"error": error, "failure_kind": "invalid_json_object"}
+
     if any(type(result.get(name)) is not bool for name in ("supported", "critical_error")):
         return {"error": error, "failure_kind": "invalid_flags"}
+
     facts = result.get("facts")
+
     if not isinstance(facts, list):
         return {"error": error, "failure_kind": "invalid_facts_type"}
+
     if len(facts) != expected_fact_count:
         return {
             "error": error,
@@ -64,6 +71,7 @@ def parse_judge_verdict(answer: str, expected_fact_count: int) -> dict:
             "expected_fact_count": expected_fact_count,
             "actual_fact_count": len(facts),
         }
+
     if any(
         not isinstance(fact, dict)
         or fact.get("verdict") not in ("correct", "missing", "incorrect")
@@ -72,7 +80,9 @@ def parse_judge_verdict(answer: str, expected_fact_count: int) -> dict:
         for fact in facts
     ):
         return {"error": error, "failure_kind": "invalid_fact_fields"}
+
     result["correct"] = all(fact["verdict"] == "correct" for fact in facts)
+
     return result
 
 
@@ -103,6 +113,7 @@ def grade(
         reasoning_enabled=reasoning_enabled,
         response_format=response_format,
     )
+
     return parse_judge_verdict(call["answer"], len(key["required_facts"])), call
 
 
@@ -118,6 +129,7 @@ def answer_case(
     response_format: dict | None = None,
     prompt_suffix: str = "",
     preserve_relevant_clause: bool = True,
+    service_pipeline: bool = False,
 ) -> dict:
     report = {
         "id": item["id"],
@@ -128,36 +140,47 @@ def answer_case(
         "judge_attempted": False,
     }
     started = perf_counter()
+
     if search_report["status"] not in {"ok", "empty"}:
         return {
             **report,
             "status": "search_unavailable",
             "answer_latency_ms": search_report["latency_ms"],
         }
+
     try:
         if search_report["results"]:
             report["generation_attempted"] = any(
                 row["snippet"].strip() for row in search_report["results"]
             )
-        response = answer_from_search(
-            item["input"]["question"],
-            search_report["results"],
-            reasoning_enabled=reasoning_enabled,
-            response_format=response_format,
-            prompt_suffix=prompt_suffix,
-            preserve_relevant_clause=preserve_relevant_clause,
+
+        response = (
+            answer_with_saved_search(item["input"]["question"], search_report["results"])
+            if service_pipeline
+            else answer_from_search(
+                item["input"]["question"],
+                search_report["results"],
+                reasoning_enabled=reasoning_enabled,
+                response_format=response_format,
+                prompt_suffix=prompt_suffix,
+                preserve_relevant_clause=preserve_relevant_clause,
+            )
         )
-        report["generation_attempted"] = response["generation"] is not None
+        report["generation_attempted"] = response.get("generation") is not None
+
         report.update(response)
     except AgentError as error:
         report.update(status="generation_error", error=str(error))
+
     report["answer_latency_ms"] = search_report["latency_ms"] + _elapsed(started)
+
     if (
         use_judge
         and report["status"] in {"answered", "partial", "unverified", "invalid"}
         and report.get("sources")
     ):
         report["judge_attempted"] = True
+
         try:
             report["grade"], report["judge"] = grade(
                 item["input"]["question"],
@@ -168,11 +191,13 @@ def answer_case(
             )
         except AgentError as error:
             report["grade"] = {"error": str(error)}
+
     return report
 
 
 def distribution(values: list[int]) -> dict:
     ordered = sorted(values)
+
     return {
         "samples": len(ordered),
         "median": median(ordered) if ordered else None,
@@ -181,13 +206,26 @@ def distribution(values: list[int]) -> dict:
 
 
 def usage_summary(reports: list[dict], stage: str) -> dict:
-    calls = [item.get(stage) for item in reports if item.get(f"{stage}_attempted")]
+    calls = []
+
+    for item in reports:
+        if stage == "generation" and "generation_calls" in item:
+            calls.extend(item["generation_calls"])
+        elif stage == "audit" and item.get("audit"):
+            calls.append(item["audit"])
+        elif stage == "rewrite" and (usage := (item.get("recovery") or {}).get("rewrite_usage")):
+            calls.append({"usage": usage})
+        elif item.get(f"{stage}_attempted"):
+            calls.append(item.get(stage))
+
     usages = [call["usage"] for call in calls if call and call.get("usage")]
     tokens = {}
+
     for name in ("prompt_tokens", "completion_tokens", "total_tokens"):
         reported = [item[name] for item in usages if type(item.get(name)) is int]
         tokens[name] = sum(reported) if reported else None
         tokens[f"{name}_reported_requests"] = len(reported)
+
     for usage_key, field, output in (
         ("completion_tokens_details", "reasoning_tokens", "reasoning_tokens"),
         ("prompt_tokens_details", "cached_tokens", "cached_input_tokens"),
@@ -199,18 +237,26 @@ def usage_summary(reports: list[dict], stage: str) -> dict:
         ]
         tokens[output] = sum(reported) if reported else None
         tokens[f"{output}_reported_requests"] = len(reported)
+
     costs = [
         Decimal(str(item["cost"])) for item in usages if type(item.get("cost")) in (int, float)
     ]
+
     return {
         "requests": len(calls),
         "responses_with_usage": len(usages),
         **tokens,
         "reported_cost_rub": str(sum(costs)) if costs else None,
         "responses_with_cost": len(costs),
-        "models": dict(Counter(call["model"] for call in calls if call)),
-        "finish_reasons": dict(Counter(str(call["finish_reason"]) for call in calls if call)),
-        "latency_ms": distribution([call["latency_ms"] for call in calls if call]),
+        "models": dict(Counter(call["model"] for call in calls if call and call.get("model"))),
+        "finish_reasons": dict(
+            Counter(
+                str(call["finish_reason"]) for call in calls if call and "finish_reason" in call
+            )
+        ),
+        "latency_ms": distribution(
+            [call["latency_ms"] for call in calls if call and "latency_ms" in call]
+        ),
     }
 
 
@@ -225,6 +271,7 @@ def quality_summary(reports: list[dict]) -> dict:
     grade_attempts = sum(
         item["judge_attempted"] and item["status"] in {"answered", "partial"} for item in reports
     )
+
     return {
         "cases": len(reports),
         "statuses": dict(Counter(item["status"] for item in reports)),
@@ -264,6 +311,7 @@ def run(
     search_min_interval: float = 0,
     provider: str = "exa",
     preserve_relevant_clause: bool = True,
+    service_pipeline: bool = False,
 ) -> dict:
     started = perf_counter()
     blocked = None
@@ -271,10 +319,12 @@ def run(
     reused_count = 0
     live_search = []
     pending = []
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for index, item in enumerate(questions, start=1):
             key = gold[item["id"]]
             expected = list(dict.fromkeys(evidence[ref]["url"] for ref in key["evidence_ids"]))
+
             if mode in {"oracle", "grounding"}:
                 refs = key["evidence_ids"] if mode == "oracle" else key["provided_evidence_ids"]
                 results = [
@@ -309,22 +359,28 @@ def run(
             else:
                 if last_search_at is not None and not blocked:
                     sleep(max(0, search_min_interval - (perf_counter() - last_search_at)))
+
                 last_search_at = perf_counter()
                 search_report = score(
                     item["id"],
                     expected,
                     search_once(search, item["input"]["question"], blocked),
                 )
+
                 if search_report["status"] != "skipped":
                     live_search.append(search_report)
+
                 if search_report["status"] == "blocked":
                     blocked = search_report["error"]
+
             stage = "Контекст" if mode in {"oracle", "grounding"} else "Поиск"
+
             print(
                 f"{stage} {index}/{len(questions)}: {search_report['status']}",
                 file=sys.stderr,
                 flush=True,
             )
+
             if mode == "retrieval":
                 pending.append(
                     {
@@ -347,14 +403,19 @@ def run(
                         judge_model,
                         judge_max_tokens,
                         preserve_relevant_clause=preserve_relevant_clause,
+                        service_pipeline=service_pipeline,
                     )
                 )
+
         reports = [item if isinstance(item, dict) else item.result() for item in pending]
+
     search_reports = [item["search"] for item in reports]
     completed = [item for item in search_reports if item["status"] in {"ok", "empty"}]
     generation = usage_summary(reports, "generation")
     judge = usage_summary(reports, "judge")
-    stages = [stage for stage in (generation, judge) if stage["requests"]]
+    rewrite = usage_summary(reports, "rewrite")
+    audit = usage_summary(reports, "audit")
+    stages = [stage for stage in (generation, judge, rewrite, audit) if stage["requests"]]
     costs = [
         Decimal(stage["reported_cost_rub"])
         for stage in stages
@@ -391,6 +452,18 @@ def run(
         },
         "generation": generation,
         "judge": judge,
+        **(
+            {
+                "pipeline": "service",
+                "rewrite": rewrite,
+                "audit": audit,
+                "recovery_actions": dict(
+                    Counter(row["recovery"]["action"] for row in reports if row.get("recovery"))
+                ),
+            }
+            if service_pipeline
+            else {}
+        ),
         "routerai": {
             "requests": sum(stage["requests"] for stage in stages),
             "reported_cost_rub": str(sum(costs)) if costs else None,
@@ -412,6 +485,7 @@ def run(
         "runs": reports,
     }
     report["metrics"] = measurements(reports, limit, use_judge)
+
     if mode == "grounding":
         report["abstention"] = {
             "expected": len(reports),
@@ -422,6 +496,7 @@ def run(
                 for item in reports
             ),
         }
+
     return report
 
 
@@ -449,6 +524,7 @@ def measurements(reports: list[dict], limit: int, use_judge: bool) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Измерить веб-поиск и ответы RouterAI")
+
     parser.add_argument(
         "--mode", choices=("e2e", "retrieval", "oracle", "grounding"), default="e2e"
     )
@@ -465,7 +541,9 @@ def main() -> None:
     parser.add_argument("--skill", action="append")
     parser.add_argument("--case", action="append")
     parser.add_argument("--split-manifest", type=Path, help="Фиксированное разбиение eval")
+
     split_options = parser.add_mutually_exclusive_group()
+
     split_options.add_argument("--fold", type=int, help="Номер проверяемого фолда")
     split_options.add_argument("--holdout-institution", help="Весь вуз в проверяемой части")
     parser.add_argument("--judge-model", help="Модель оценивания, независимо от модели ответа")
@@ -478,6 +556,11 @@ def main() -> None:
         "--report", type=Path, help="Пересчитать метрики сохранённого отчёта без API"
     )
     parser.add_argument("--workers", type=int, default=4, help="Параллельные вызовы модели")
+    parser.add_argument(
+        "--service-pipeline",
+        action="store_true",
+        help="Проверить валидацию и восстановление штатного агента",
+    )
     parser.add_argument("--no-judge", action="store_true", help="Без дополнительной оценки моделью")
     parser.add_argument(
         "--reuse-search",
@@ -496,30 +579,47 @@ def main() -> None:
         default=0,
         help="Интервал между поисковыми запросами, секунды",
     )
+
     args = parser.parse_args()
+
+    if args.service_pipeline and (
+        args.mode != "e2e" or args.context_mode != "prefix-with-evidence"
+    ):
+        parser.error("--service-pipeline использует e2e и штатную подготовку источников.")
+
     if not 1 <= args.workers <= 8:
         parser.error("--workers должен быть от 1 до 8")
+
     if args.judge_max_tokens is not None and args.judge_max_tokens < 1:
         parser.error("--judge-max-tokens должен быть положительным")
+
     if not 0 <= args.search_min_interval <= 60:
         parser.error("--search-min-interval должен быть от 0 до 60")
+
     if args.fill_missing_search and not args.reuse_search:
         parser.error("--fill-missing-search требует --reuse-search")
+
     if args.reuse_search and args.mode in {"oracle", "grounding"}:
         parser.error("Фиксированные контексты не используют предыдущую выдачу.")
+
     has_split = args.fold is not None or args.holdout_institution is not None
+
     if bool(args.split_manifest) != has_split:
         parser.error("--split-manifest требует --fold или --holdout-institution.")
+
     split = {}
+
     if has_split:
         if args.mode == "grounding" or any((args.case, args.domain, args.institution, args.skill)):
             parser.error("Для фиксированного веб-среза нельзя дополнительно выбирать кейсы.")
+
         try:
             split = select_split(
                 args.split_manifest, args.dataset, args.fold, args.holdout_institution
             )
         except (OSError, ValueError, KeyError, TypeError) as error:
             parser.error(str(error))
+
     test_ids = set(split.get("test", []))
     core_questions = read_jsonl(EVAL_DIR / "questions.jsonl")
     new_questions = read_jsonl(EVAL_DIR / "questions-extension.jsonl")
@@ -541,8 +641,10 @@ def main() -> None:
         and (not args.case or item["id"] in args.case)
         and (not has_split or item["id"] in test_ids)
     ]
+
     if not questions:
         parser.error("Нет вопросов с выбранными фильтрами.")
+
     if args.report:
         try:
             previous = json.loads(args.report.read_text(encoding="utf-8"))
@@ -552,21 +654,27 @@ def main() -> None:
                 for row in previous["runs"]
                 if row["id"] in index
             ]
+
             if not rows:
                 raise ValueError
+
             if has_split:
                 if len(rows) != len(test_ids) or {row["id"] for row in rows} != test_ids:
                     parser.error("Для сравнения нужен отчёт со всеми вопросами фолда.")
+
                 previous_split = previous.get("split")
+
                 if (
                     previous_split
                     and previous_split.get("dataset_sha256") != split["dataset_sha256"]
                 ):
                     parser.error("Отчёт относится к другой версии eval.")
+
                 if any(
                     row["search"]["query"] != index[row["id"]]["input"]["question"] for row in rows
                 ):
                     parser.error("Вопросы в отчёте отличаются от зафиксированного среза.")
+
             print(
                 json.dumps(
                     {
@@ -585,12 +693,16 @@ def main() -> None:
             )
         except (OSError, ValueError, KeyError, TypeError):
             parser.error("Не удалось прочитать выбранные кейсы из отчёта.")
+
         return
+
     try:
-        settings = _local_settings()
+        settings = load_settings()
+
         if args.mode != "retrieval":
-            _setting(settings, "ROUTERAI_API_KEY")
-        limit = _positive_int(settings, "SEARCH_MAX_RESULTS")
+            required(settings, "INFERENCE_URL")
+
+        limit = positive_int(settings, "SEARCH_MAX_RESULTS")
         run_live = (not args.reuse_search or args.fill_missing_search) and args.mode in {
             "e2e",
             "retrieval",
@@ -598,6 +710,7 @@ def main() -> None:
         search = make_searcher(args.provider) if run_live else None
     except AgentError as error:
         parser.exit(1, f"Ошибка: {error}\n")
+
     key = {
         item["id"]: item
         for item in (
@@ -606,19 +719,25 @@ def main() -> None:
         )
     }
     evidence = json.loads((EVAL_DIR / "gold/evidence.json").read_text(encoding="utf-8"))
+
     evidence.update(
         json.loads((EVAL_DIR / "gold/evidence-extension.json").read_text(encoding="utf-8"))
     )
+
     reused = None
-    anonymous = args.provider == "firecrawl" and not _optional(settings, "FIRECRAWL_API_KEY")
+    anonymous = args.provider == "firecrawl" and not optional(settings, "FIRECRAWL_API_KEY")
+
     if args.reuse_search:
         try:
             reused = {}
             original_limits = set()
+
             for path in args.reuse_search:
                 previous = json.loads(path.read_text(encoding="utf-8"))
+
                 if previous["search"]["provider"] != args.provider:
                     raise ValueError
+
                 original_limits.add(previous["search"]["limit"])
                 reused.update(
                     {
@@ -627,20 +746,24 @@ def main() -> None:
                         if row["search"]["status"] in {"ok", "empty"}
                     }
                 )
+
             if len(original_limits) != 1 or (
                 args.fill_missing_search and limit not in original_limits
             ):
                 raise ValueError
+
             limit = original_limits.pop()
             reused = {
                 item["id"]: reused[item["id"]]
                 for item in questions
                 if item["id"] in reused and reused[item["id"]]["query"] == item["input"]["question"]
             }
+
             if not args.fill_missing_search and len(reused) != len(questions):
                 raise ValueError
         except (OSError, ValueError, KeyError, TypeError):
             parser.error("Не удалось сопоставить поиск из отчёта с текущими вопросами.")
+
     result = run(
         questions,
         key,
@@ -657,9 +780,12 @@ def main() -> None:
         search_min_interval=args.search_min_interval,
         provider=args.provider,
         preserve_relevant_clause=args.context_mode == "prefix-with-evidence",
+        service_pipeline=args.service_pipeline,
     )
+
     if has_split:
         result["split"] = split
+
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

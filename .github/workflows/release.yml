@@ -21,6 +21,7 @@ jobs:
           - {image: frontend, context: frontend, file: frontend/Dockerfile, target: prod}
           - {image: backend, context: backend, file: backend/Dockerfile, target: runtime}
           - {image: agent, context: agent, file: agent/Dockerfile, target: runtime}
+          - {image: inference, context: inference, file: inference/Dockerfile, target: runtime}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -79,5 +80,5 @@ jobs:
           destination="$ROOT_PATH/releases/$RELEASE"
           options=(-i "$key_dir/id" -o "UserKnownHostsFile=$key_dir/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=10)
           ssh "${options[@]}" "$target" "umask 077; mkdir -p '$destination'"
-          scp "${options[@]}" deploy/compose.yaml deploy/activate.sh "$target:$destination/"
+          scp "${options[@]}" deploy/compose.yaml deploy/activate.sh deploy/cache-env.sh "$target:$destination/"
           ssh "${options[@]}" "$target" "bash '$destination/activate.sh' '$ROOT_PATH' 'ghcr.io/${REPOSITORY,,}' '$RELEASE'"

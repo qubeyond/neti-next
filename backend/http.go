@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,11 +24,12 @@ type server struct {
 	store         *store
 	agent         agent
 	events        *eventHub
+	turns         *turnLimits
 	secureCookies bool
 }
 
 func newServer(store *store, agent agent, secureCookies bool) *server {
-	return &server{store: store, agent: agent, events: newEventHub(), secureCookies: secureCookies}
+	return &server{store: store, agent: agent, events: newEventHub(), turns: newTurnLimits(), secureCookies: secureCookies}
 }
 
 func (s *server) routes() http.Handler {
@@ -42,6 +44,9 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/guest", handle(s.createGuest))
 	mux.HandleFunc("DELETE /api/v1/auth/guest", handle(s.deleteGuest))
 	mux.HandleFunc("GET /api/v1/profile", handle(s.getProfile))
+	mux.HandleFunc("POST /api/v1/drafts/transcribe", handle(s.transcribeDraft))
+	mux.HandleFunc("GET /api/v1/demo", handle(s.demoAccess))
+	mux.HandleFunc("POST /api/v1/demo/runs", handle(s.demoRun))
 	mux.HandleFunc("PATCH /api/v1/profile", handle(s.updateProfile))
 	mux.HandleFunc("DELETE /api/v1/profile", handle(s.deleteProfile))
 	mux.HandleFunc("GET /api/v1/chats", handle(s.listChats))
@@ -54,12 +59,20 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/chats/{chat}/files/{file}", handle(s.deleteFile))
 	mux.HandleFunc("POST /api/v1/chats/{chat}/messages", handle(s.send))
 	mux.HandleFunc("POST /api/v1/chats/{chat}/messages/{message}/retry", handle(s.retry))
+	mux.HandleFunc("POST /api/v1/chats/{chat}/messages/{message}/cancel", handle(s.cancelTurn))
 	mux.HandleFunc("GET /api/v1/events", handle(s.connectEvents))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := requestID(r.Header.Get("X-Request-ID"))
+		r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id))
+		w.Header().Set("X-Request-ID", id)
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		if !sameOrigin(r) {
 			writeError(w, problem(http.StatusForbidden, "Запрос с другого сайта отклонён."))
+			return
+		}
+		if handler, pattern := mux.Handler(r); pattern == "" {
+			handler.ServeHTTP(muxProblemWriter{w}, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -85,19 +98,19 @@ func handle(action func(http.ResponseWriter, *http.Request) error) http.HandlerF
 }
 
 func writeError(w http.ResponseWriter, err error) {
-	var reply failure
-	var tooLarge *http.MaxBytesError
-	switch {
-	case errors.As(err, &reply):
-	case errors.Is(err, errGone):
-		reply = failure{401, "Сессия завершена. Войдите или начните новый гостевой сеанс."}
-	case errors.As(err, &tooLarge):
-		reply = failure{413, "Размер запроса превышает лимит."}
-	default:
-		log.Printf("backend: %T", err)
-		reply = failure{500, "Не удалось выполнить запрос. Попробуйте ещё раз."}
+	id := w.Header().Get("X-Request-ID")
+	reply := safeFailure(err, id)
+	if reply.code == 429 {
+		delay := 1
+		var limited retryLater
+		if errors.As(err, &limited) {
+			delay = limited.seconds
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(delay))
 	}
-	writeJSON(w, reply.code, map[string]string{"detail": reply.text})
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(reply.code)
+	json.NewEncoder(w).Encode(problemResponse(reply.code, reply.text, id))
 }
 
 func writeJSON(w http.ResponseWriter, code int, value any) {

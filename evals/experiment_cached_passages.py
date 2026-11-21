@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from time import perf_counter_ns
 
-from agent.modules.answers.domain.evidence import _plain, prepare_sources
+from agent.domain.evidence import _plain, prepare_sources
 from evals.compare_search import EVAL_DIR, read_jsonl, url_key
 from evals.experiment_evidence_stages import evidence_stages
 from evals.experiment_page_context import passage

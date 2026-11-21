@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from time import sleep
 
-from agent.shared.config import _local_settings, _positive_int, _setting
+from agent.config import load_settings, positive_int, required
 from evals.compare_search import EVAL_DIR, read_jsonl, score
 from evals.experiment_domain_search import search
 from evals.experiment_page_context import passage
@@ -42,9 +42,10 @@ def main() -> None:
         gold.update(
             (row["id"], row) for row in read_jsonl(EVAL_DIR / "gold" / f"answers{suffix}.jsonl")
         )
-    settings = _local_settings()
-    key = _setting(settings, "FIRECRAWL_API_KEY")
-    budget = _positive_int(settings, "WEB_SOURCE_MAX_CHARS")
+
+    settings = load_settings()
+    key = required(settings, "FIRECRAWL_API_KEY")
+    budget = positive_int(settings, "WEB_SOURCE_MAX_CHARS")
     collected = []
     with ThreadPoolExecutor(max_workers=3) as pool:
         pending = []

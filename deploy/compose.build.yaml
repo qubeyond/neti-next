@@ -12,3 +12,8 @@ services:
     build:
       context: ../agent
     pull_policy: build
+
+  inference:
+    build:
+      context: ../inference
+    pull_policy: build

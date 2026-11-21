@@ -5,7 +5,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from agent.shared.errors import AgentError
+from agent.domain.errors import AgentError
 from evals.compare_search import EVAL_DIR, read_jsonl
 from evals.run_robustness import ASSESS_ABSTENTION
 from evals.run_web_baseline import grade, usage_summary

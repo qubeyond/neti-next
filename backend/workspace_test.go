@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	bolt "go.etcd.io/bbolt"
 )
 
 type recordingAgent struct {
@@ -33,6 +35,13 @@ func (runner recordingAgent) answer(_ context.Context, input agentRequest, repor
 	report(activity{Kind: "tool", Label: "Поиск по материалам"})
 	return agentAnswer{Status: "answered", Answer: "**Ответ**", Citations: []citation{{URL: "https://example.org", Quote: "Цитата"}},
 		Artifacts: []artifact{{Kind: "link", Title: "Материал", URL: "https://example.org"}}}, nil
+}
+
+func (runner recordingAgent) trace(_ context.Context, _ agentRequest, emit func(demoEvent) error) error {
+	if err := emit(demoEvent{Type: "span_start", ID: "fixture", Parent: "agent", Service: "web", Operation: "search"}); err != nil {
+		return err
+	}
+	return emit(demoEvent{Type: "answer", Answer: &agentAnswer{Status: "answered", Answer: "Демо"}})
 }
 
 type testBrowser struct {
@@ -143,9 +152,105 @@ func (b testBrowser) upload(route string) attachment {
 	return item
 }
 
+func legacyWorkspace(t *testing.T, filename string) (string, string, string) {
+	t.Helper()
+	accountID, token, fileID := randomID(), randomID(), randomID()
+	db, err := bolt.Open(filename, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	err = db.Update(func(tx *bolt.Tx) error {
+		owners, err := tx.CreateBucket([]byte("workspaces"))
+		if err != nil {
+			return err
+		}
+		account, err := owners.CreateBucket([]byte(accountID))
+		if err != nil {
+			return err
+		}
+		state := workspace{
+			Profile: profile{ID: accountID, Email: "migrated@example.org", Name: "Импорт", Instructions: "текст\u0000из BoltDB"},
+			Chats:   map[string]*storedChat{"chat": {chat: chat{Messages: []message{{State: "working"}}}}},
+		}
+		raw, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		if err := account.Put([]byte("state"), raw); err != nil {
+			return err
+		}
+		if err := account.Put([]byte(fileID), []byte("Старое вложение")); err != nil {
+			return err
+		}
+		sessions, err := tx.CreateBucket([]byte("sessions"))
+		if err != nil {
+			return err
+		}
+		raw, err = json.Marshal(session{Owner: accountID, Expires: time.Now().Add(time.Hour)})
+		if err != nil {
+			return err
+		}
+		return sessions.Put([]byte(tokenKey(token)), raw)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accountID, token, fileID
+}
+
+func setLegacyOrphan(t *testing.T, filename string, create bool) {
+	t.Helper()
+	db, err := bolt.Open(filename, 0600, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("sessions"))
+		key := []byte("orphan-session")
+		if !create {
+			return bucket.Delete(key)
+		}
+		raw, err := json.Marshal(session{Owner: "missing-owner", Expires: time.Now().Add(time.Hour)})
+		if err != nil {
+			return err
+		}
+		return bucket.Put(key, raw)
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWorkspaceIsolationAndEvents(t *testing.T) {
+	dsn := os.Getenv("BACKEND_TEST_DATABASE_DSN")
+	if dsn == "" {
+		t.Skip("requires an empty PostgreSQL database; covered by Compose smoke")
+	}
 	filename := filepath.Join(t.TempDir(), "workspace.db")
-	db, err := newStore(filename)
+	migratedID, migratedToken, migratedFile := legacyWorkspace(t, filename)
+	setLegacyOrphan(t, filename, true)
+	if unsuccessful, err := newStore(dsn, filename); err == nil {
+		unsuccessful.db.Close()
+		t.Fatal("Импорт с отсутствующим владельцем должен отмениться полностью")
+	}
+	setLegacyOrphan(t, filename, false)
+	db, err := newStore(dsn, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := db.authenticate(migratedToken, false)
+	if err != nil || migrated.owner != migratedID {
+		t.Fatalf("Сессия импорта: %+v, %v", migrated, err)
+	}
+	err = db.access(migrated, false, func(state *workspace, storage blobs) error {
+		data, err := storage.get(migratedFile)
+		if err != nil || string(data) != "Старое вложение" || state.Profile.Instructions != "текст\u0000из BoltDB" ||
+			state.Chats["chat"].Messages[0].State != "failed" {
+			t.Fatalf("Импорт профиля, чата или вложения: %v", err)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,8 +261,30 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	base := service.URL + "/api/v1"
 	account := newBrowser(t, base)
 	other := newBrowser(t, base)
-	account.call("POST", "/auth/register", 201, credentials{Name: "Лена", Email: "lena@example.org", Password: "password123"}, nil)
+	var demo profile
+	account.call("POST", "/auth/register", 201, credentials{Name: "Лена", Email: "lena@example.org", Password: "password123"}, &demo)
 	other.call("POST", "/auth/register", 201, credentials{Name: "Илья", Email: "ilya@example.org", Password: "password123"}, nil)
+	t.Setenv("BACKEND_DEMO_ACCOUNT_ID", demo.ID)
+	account.call("GET", "/demo", 200, nil, nil)
+	other.call("POST", "/demo/runs", 403, map[string]string{"question": "Вопрос"}, nil)
+	newBrowser(t, base).call("GET", "/demo", 401, nil, nil)
+	response, err := account.http.Post(base+"/demo/runs", "application/json", strings.NewReader(`{"question":"Вопрос"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := json.NewDecoder(response.Body)
+	for _, eventType := range []string{"span_start", "span_start", "span_end", "answer"} {
+		var event demoEvent
+		if err := stream.Decode(&event); err != nil || event.Type != eventType || event.RequestID == "" {
+			response.Body.Close()
+			t.Fatalf("Событие %s: %+v (%v)", eventType, event, err)
+		}
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 || response.Header.Get("Content-Type") != demoStreamType {
+		t.Fatalf("Некорректный поток: %d, %s", response.StatusCode, response.Header.Get("Content-Type"))
+	}
+
 	account.call("PATCH", "/profile", 200, map[string]string{"name": "Елена", "theme": "dark", "instructions": "Отвечай кратко."}, nil)
 	first := account.create()
 	second := account.create()
@@ -218,11 +345,14 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 	}
 	service.Close()
 	db.db.Close()
-	db, err = newStore(filename)
+	db, err = newStore(dsn, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.db.Close()
+	if account, err := db.authenticate(migratedToken, false); err != nil || account.owner != migratedID {
+		t.Fatalf("Импортированная сессия после перезапуска: %+v, %v", account, err)
+	}
 	reopened := httptest.NewServer(newServer(db, runner, false).routes())
 	defer reopened.Close()
 	account.base = reopened.URL + "/api/v1"
@@ -242,9 +372,18 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 
 func TestLegacyAgentQuestionContract(t *testing.T) {
 	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var input map[string]string
+		var input struct {
+			Question string `json:"question"`
+			Quoted   string `json:"quoted_text"`
+			History  []struct {
+				Role string
+				Text string
+			} `json:"history"`
+		}
 		json.NewDecoder(r.Body).Decode(&input)
-		if r.Method != "POST" || r.URL.Path != "/agent/v1/answers" || len(input) != 1 || !strings.Contains(input["question"], "Цитируемый фрагмент") {
+		if r.Method != "POST" || r.URL.Path != "/agent/v1/answers" ||
+			input.Question != "Уточните" || input.Quoted != "Цитируемый фрагмент" ||
+			len(input.History) != 1 || input.History[0].Text != "Сохранённый диалог" {
 			t.Errorf("Неверный HTTP-запрос: %s %s %+v", r.Method, r.URL.Path, input)
 		}
 		fmt.Fprint(w, `{"status":"partial","answer":"Ответ","citations":[]}`)
@@ -252,9 +391,81 @@ func TestLegacyAgentQuestionContract(t *testing.T) {
 	defer service.Close()
 	result, err := newLegacyAgent(service.URL).answer(context.Background(), agentRequest{
 		Message: message{Text: "Уточните", Quote: "Цитируемый фрагмент"},
-		History: []message{{Text: "Сохранённый диалог"}}, Instructions: "Настройка профиля",
+		History: []message{{Role: "user", Text: "Сохранённый диалог"}}, Instructions: "Настройка профиля",
 	}, func(activity) {})
 	if err != nil || result.Status != "partial" {
 		t.Fatalf("Ответ: %+v, ошибка: %v", result, err)
+	}
+}
+
+func TestAttachmentOnlyOCRUsesInferenceWithoutAgent(t *testing.T) {
+	inference := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		json.NewDecoder(r.Body).Decode(&body)
+		if r.URL.Path != "/inference/v1/ocr" || r.Header.Get("Authorization") != "Bearer test-token" ||
+			body["mime"] != "image/png" || body["data"] == "" {
+			t.Errorf("Неверный запрос распознавания: %s %+v", r.URL.Path, body)
+		}
+		fmt.Fprint(w, `{"text":"Расписание 2036","truncated":false}`)
+	}))
+	defer inference.Close()
+
+	client := newLegacyAgent("http://127.0.0.1:1")
+	client.inference = &inferenceClient{base: inference.URL, token: "test-token", client: client.client}
+	reply, err := client.answer(context.Background(), agentRequest{
+		Message: message{Attachments: []attachment{{ID: "fixture", Name: "test.png", MIME: "image/png"}}},
+		ReadAttachment: func(id string) ([]byte, error) {
+			if id != "fixture" {
+				t.Errorf("Неожиданный идентификатор %s", id)
+			}
+			return []byte("png"), nil
+		},
+	}, func(activity) {})
+	if err != nil || reply.Status != "answered" || len(reply.Artifacts) != 1 || reply.Artifacts[0].Text != "Расписание 2036" {
+		t.Fatalf("Ответ: %+v, ошибка: %v", reply, err)
+	}
+}
+
+type cancellableAgent struct{ started chan int }
+
+func (runner cancellableAgent) answer(ctx context.Context, _ agentRequest, _ func(activity)) (agentAnswer, error) {
+	runner.started <- 1
+	<-ctx.Done()
+	return agentAnswer{}, ctx.Err()
+}
+
+func TestTurnQuotaCancellationAndProblemContract(t *testing.T) {
+	db := &store{guests: make(map[string]*guestSession)}
+	t.Setenv("BACKEND_MAX_ACTIVE_TURNS", "1")
+	runner := cancellableAgent{started: make(chan int, 1)}
+	server := httptest.NewServer(newServer(db, runner, false).routes())
+	defer server.Close()
+	client := newBrowser(t, server.URL+"/api/v1")
+	var guest map[string]string
+	client.call("POST", "/auth/guest", http.StatusCreated, nil, &guest)
+	client.token = guest["token"]
+	first, second := client.create(), client.create()
+	var accepted map[string]string
+	client.call("POST", first+"/messages", 202, sendInput{RequestID: randomID(), Text: "Когда занятия?"}, &accepted)
+	select {
+	case <-runner.started:
+	case <-time.After(time.Second):
+		t.Fatal("Агент не получил ход")
+	}
+	var busy problemDetails
+	client.call("POST", second+"/messages", 429, sendInput{RequestID: randomID(), Text: "Второй вопрос"}, &busy)
+	var untouched chat
+	client.call("GET", second, 200, nil, &untouched)
+	if len(untouched.Messages) != 0 {
+		t.Fatalf("Отклонённый запрос изменил гостевой чат: %+v", untouched.Messages)
+	}
+	if busy.RequestID == "" || busy.Type != "urn:neti:problem:too-many-requests" {
+		t.Fatalf("Неверный формат ошибки: %+v", busy)
+	}
+	client.call("POST", first+"/messages/"+accepted["messageId"]+"/cancel", 202, nil, nil)
+	item := client.completed(first)
+	last := item.Messages[len(item.Messages)-1]
+	if last.Problem == nil || last.Problem.Status != 409 || last.State != "failed" {
+		t.Fatalf("Запрос не отменён: %+v", last)
 	}
 }

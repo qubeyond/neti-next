@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 
-from agent.shared.config import _local_settings, _setting
+from agent.config import load_settings
 from evals.experiment_decisions import decide
+from evals.provider_settings import routerai_key
 from evals.run_web_baseline import distribution
 
 POSITIVE = (
@@ -72,11 +73,11 @@ def main() -> None:
     cases.append(draft(read(args.reasoning)["pairs"]["vki-start"]["control"], "withhold"))
     cases.append(draft(read(args.status)["variants"]["explicit"]["wrong-service"], "withhold"))
 
-    settings = _local_settings()
+    settings = load_settings()
     router = partial(
         decide,
         variant="jev",
-        api_key=_setting(settings, "ROUTERAI_API_KEY"),
+        api_key=routerai_key(settings),
         interface=os.getenv("ROUTERAI_NETWORK_INTERFACE")
         or settings.get("ROUTERAI_NETWORK_INTERFACE", ""),
         criteria=CHOICES,

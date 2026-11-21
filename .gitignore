@@ -1,6 +1,9 @@
 .env
 .env.*
 *.env
+/.private/
+/agent/.private/
+/inference/.private/
 !.env.example
 !deploy/.env.example
 .venv/

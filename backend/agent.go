@@ -4,14 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
-// Объявляет данные, доступные следующему адаптеру. Текущий HTTP-метод поддерживает только вопрос.
+// Данные текущего хода передаются из рабочего пространства адаптеру агента.
 type agentRequest struct {
 	ChatID         string
 	History        []message
@@ -22,10 +21,13 @@ type agentRequest struct {
 }
 
 type agentAnswer struct {
-	Status    string     `json:"status"`
-	Answer    string     `json:"answer"`
-	Citations []citation `json:"citations"`
-	Artifacts []artifact `json:"artifacts"`
+	Status      string          `json:"status"`
+	Answer      string          `json:"answer"`
+	Citations   []citation      `json:"citations"`
+	Blocks      []chatBlock     `json:"blocks,omitempty"`
+	Suggestions []string        `json:"suggestions,omitempty"`
+	Events      []calendarEvent `json:"events"`
+	Artifacts   []artifact      `json:"artifacts"`
 }
 
 type agent interface {
@@ -33,8 +35,10 @@ type agent interface {
 }
 
 type legacyAgent struct {
-	client   *http.Client
-	endpoint string
+	client    *http.Client
+	endpoint  string
+	inference *inferenceClient
+	token     string
 }
 
 func newLegacyAgent(baseURL string) legacyAgent {
@@ -44,53 +48,127 @@ func newLegacyAgent(baseURL string) legacyAgent {
 	}
 }
 
-func (agent legacyAgent) answer(ctx context.Context, input agentRequest, _ func(activity)) (agentAnswer, error) {
+var imageQuestion = regexp.MustCompile(`(?i)фото|снимк|скрин|изображ|картинк|что (?:здесь|тут|написано|видно)|здесь (?:написано|указано|видно)`)
+
+type preparedTurn struct {
+	payload []byte
+	local   agentAnswer
+	image   *recognizedImage
+}
+
+func (agent legacyAgent) prepare(ctx context.Context, input agentRequest, report func(activity)) (preparedTurn, error) {
 	var result agentAnswer
-	if input.Message.Text == "" {
-		return result, errors.New("Агент пока не читает вложения. Отправьте текстовый вопрос.")
-	}
 	question := input.Message.Text
-	if input.Message.Quote != "" {
-		label := "\n\nЦитата из предыдущего ответа:\n"
-		free := 2000 - len([]rune(question)) - len([]rune(label))
-		if free > 0 {
-			quote := []rune(input.Message.Quote)
-			question += label + string(quote[:min(free, len(quote))])
+	contextText := ""
+	var image *recognizedImage
+	if imageQuestion.MatchString(question) {
+		photos := 0
+		for _, item := range input.Message.Attachments {
+			if strings.HasPrefix(item.MIME, "image/") {
+				photos++
+			}
+		}
+		if photos > 1 {
+			return preparedTurn{local: agentAnswer{Status: "clarification", Answer: "Пришлите одну фотографию, к которой относится вопрос."}}, nil
 		}
 	}
-	data, err := json.Marshal(map[string]string{"question": question})
-	if err != nil {
-		return result, errors.New("Не удалось подготовить запрос.")
+	if len(input.Message.Attachments) > 0 && agent.inference != nil && input.ReadAttachment != nil {
+		recognized, files, mediaImage, err := agent.inference.prepare(ctx, input, report)
+		if err != nil {
+			return preparedTurn{}, err
+		}
+		result.Artifacts = files
+		if question == "" {
+			hasVoice := false
+			for _, item := range files {
+				hasVoice = hasVoice || strings.HasPrefix(item.Title, "Расшифровка · ")
+			}
+			if !hasVoice && recognized != "" {
+				result.Status, result.Answer = "answered", "Распознанный текст доступен во вложениях ответа."
+				return preparedTurn{local: result}, nil
+			}
+			question = recognized
+		} else {
+			contextText = recognized
+			image = mediaImage
+		}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, agent.endpoint, bytes.NewReader(data))
+	if question == "" {
+		return preparedTurn{}, problem(422, "Добавьте текст, аудиозапись, PDF или изображение для распознавания.")
+	}
+	runes := []rune(question)
+	question = string(runes[:min(len(runes), 2000)])
+	type historyTurn struct {
+		Role string `json:"role"`
+		Text string `json:"text"`
+	}
+	history := make([]historyTurn, 0, 6)
+	for _, message := range input.History {
+		if message.Text == "" || message.Role == "assistant" && message.State != "complete" {
+			continue
+		}
+		runes := []rune(message.Text)
+		history = append(history, historyTurn{message.Role, string(runes[:min(800, len(runes))])})
+	}
+	payload := map[string]any{"question": question}
+	if len(history) > 0 {
+		payload["history"] = history[max(0, len(history)-6):]
+	}
+	if input.Message.Quote != "" {
+		payload["quoted_text"] = input.Message.Quote
+	}
+	if image != nil {
+		payload["image_source"] = image
+	} else if contextText != "" {
+		contextRunes := []rune(contextText)
+		payload["attachment_text"] = string(contextRunes[:min(len(contextRunes), 6000)])
+	}
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return result, errors.New("Адрес агента настроен неверно.")
+		return preparedTurn{}, problem(500, "Не удалось подготовить запрос.")
+	}
+	return preparedTurn{payload: data, local: result, image: image}, nil
+}
+
+func (agent legacyAgent) answer(ctx context.Context, input agentRequest, report func(activity)) (agentAnswer, error) {
+	prepared, err := agent.prepare(ctx, input, report)
+	if err != nil || len(prepared.payload) == 0 {
+		return prepared.local, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, agent.endpoint, bytes.NewReader(prepared.payload))
+	if err != nil {
+		return prepared.local, problem(503, "Адрес агента настроен неверно.")
 	}
 	request.Header.Set("Content-Type", "application/json")
+	propagate(ctx, request)
+	if agent.token != "" {
+		request.Header.Set("Authorization", "Bearer "+agent.token)
+	}
 	response, err := agent.client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return result, errors.New("Агент не успел ответить. Попробуйте ещё раз.")
+			return prepared.local, ctx.Err()
 		}
-		return result, errors.New("Не удалось подключиться к агенту. Попробуйте ещё раз.")
+		return prepared.local, problem(502, "Не удалось подключиться к агенту. Попробуйте ещё раз.")
 	}
 	defer response.Body.Close()
-	switch response.StatusCode {
-	case 200:
-	case 503:
-		return result, errors.New("Ответы агента отключены в этом окружении.")
-	case 429, 502, 504:
-		return result, errors.New("Сервис агента временно недоступен. Попробуйте ещё раз.")
-	default:
-		return result, fmt.Errorf("Сервис агента отклонил запрос (HTTP %d).", response.StatusCode)
+	if response.StatusCode != http.StatusOK {
+		return prepared.local, upstreamFailure(response.StatusCode, "Агент")
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&result); err != nil {
-		return result, errors.New("Агент вернул ответ в неизвестном формате.")
+	var answer agentAnswer
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&answer); err != nil {
+		return prepared.local, problem(502, "Агент вернул ответ в неизвестном формате.")
 	}
-	switch result.Status {
-	case "answered", "partial", "unverified":
-		return result, nil
+	return prepared.finalize(ctx, answer)
+}
+
+func (prepared preparedTurn) finalize(ctx context.Context, answer agentAnswer) (agentAnswer, error) {
+	answer.Artifacts = append(prepared.local.Artifacts, answer.Artifacts...)
+	addImageRegions(ctx, prepared.image, answer.Citations)
+	switch answer.Status {
+	case "answered", "partial", "unverified", "clarification":
+		return answer, nil
 	default:
-		return agentAnswer{}, errors.New("Агент вернул неизвестный статус ответа.")
+		return agentAnswer{}, problem(502, "Агент вернул неизвестный статус ответа.")
 	}
 }
