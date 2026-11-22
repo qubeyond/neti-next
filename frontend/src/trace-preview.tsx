@@ -1,13 +1,7 @@
 import { useState } from 'react'
-import DemoStudio from './demo-studio'
+import DemoStudio, { type TraceSnapshot, type TraceEvent, type TraceSpan } from './demo-studio'
 import { TraceMenu } from './trace-menu'
-import type { TraceEvent, TraceLayout, TraceSnapshot, TraceSpan } from './trace-workspace'
 
-const layouts: { value: TraceLayout; label: string }[] = [
-  { value: 'timeline', label: 'Хронология' },
-  { value: 'services', label: 'По сервисам' },
-  { value: 'answer', label: 'Ответ и источники' },
-]
 const scenarios = [
   { value: 'success', label: 'Успешный ответ' },
   { value: 'error', label: 'Сбой модели' },
@@ -90,18 +84,10 @@ function setPreviewParam(key: string, value: string) {
 }
 
 export default function TracePreview() {
-  const [layout, setLayout] = useState<TraceLayout>(() => {
-    const selected = new URLSearchParams(location.search).get('layout')
-    return layouts.find((option) => option.value === selected)?.value ?? 'timeline'
-  })
   const [scenario, setScenario] = useState<Scenario>(() => new URLSearchParams(location.search).get('scenario') === 'error' ? 'error' : 'success')
   const fixture = scenario === 'error' ? failure : success
-  return <DemoStudio account="Тестовые данные" layout={layout} fixture={fixture}
+  return <DemoStudio account="Тестовые данные" fixture={fixture}
     execute={async (_question, _history, _file, signal) => replay(fixture, signal)}
-    controls={<div className="trace-preview-tools" aria-label="Параметры предпросмотра">
-      <TraceMenu label="Макет" value={layout} options={layouts}
-        onChange={(next) => { setLayout(next); setPreviewParam('layout', next) }}/>
-      <TraceMenu label="Сценарий" value={scenario} options={[...scenarios]}
-        onChange={(next) => { setScenario(next); setPreviewParam('scenario', next) }}/>
-    </div>}/>
+    controls={<TraceMenu label="Сценарий" value={scenario} options={[...scenarios]}
+      onChange={(next) => { setScenario(next); setPreviewParam('scenario', next) }}/>}/>
 }

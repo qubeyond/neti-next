@@ -23,7 +23,7 @@ export function TraceMenu<Key extends string>({ label, value, options, onChange 
     const height = options.length * 38 + 12
     const up = below < height && above > below
     panel.style.width = width + 'px'
-    panel.style.left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)) + 'px'
+    panel.style.left = Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12)) + 'px'
     panel.style.maxHeight = Math.max(up ? above : below, 0) + 'px'
     panel.style.top = up ? 'auto' : rect.bottom + 5 + 'px'
     panel.style.bottom = up ? window.innerHeight - rect.top + 5 + 'px' : 'auto'
@@ -62,7 +62,7 @@ export function TraceMenu<Key extends string>({ label, value, options, onChange 
         event.preventDefault()
         popover.current?.showPopover()
       }}>
-      <span>{selected?.label ?? value}</span><span className="trace-chevron" aria-hidden="true"/>
+      <span>{selected?.label ?? value}</span><span className="trace-bracket" aria-hidden="true"/>
     </button>
     <div ref={popover} id={id} className="trace-select-menu" role="menu" aria-label={label} popover="auto"
       onBeforeToggle={(event) => { if (event.newState === 'open') position(event.currentTarget) }}
@@ -74,7 +74,7 @@ export function TraceMenu<Key extends string>({ label, value, options, onChange 
       onKeyDown={navigate}>
       {options.map((option) => <button type="button" key={option.value} role="menuitemradio" tabIndex={-1}
         aria-checked={option.value === value} onClick={() => { close(); onChange(option.value) }}>
-        <span>{option.label}</span><span className="trace-check" aria-hidden="true">✓</span>
+        <span className="trace-check" aria-hidden="true">&gt;</span><span>{option.label}</span>
       </button>)}
     </div>
   </div>
