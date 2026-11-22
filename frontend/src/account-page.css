@@ -1,0 +1,92 @@
+.account-site {
+  position: relative;
+  min-height: 100dvh;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 400 14px/1.65 'Workspace Mono', 'Courier New', monospace;
+}
+.site-header {
+  position: absolute;
+  z-index: 1;
+  top: clamp(18px, 4vw, 38px);
+  left: clamp(20px, 4vw, 56px);
+}
+.site-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -.04em;
+  text-decoration: none;
+}
+.account-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 100dvh;
+}
+.account-art {
+  display: grid;
+  place-items: end center;
+  overflow: hidden;
+  padding-top: 76px;
+  border-inline-end: 1px solid var(--stroke);
+  background: var(--accent-faint);
+}
+.account-art .pigeon-avatar {
+  --pigeon-line: 4.33px;
+  width: min(96%, calc((100dvh - 76px) * 1.05));
+  aspect-ratio: 1.07;
+  border-radius: 0 0 24% 24% / 0 0 10% 10%;
+  overflow: hidden;
+}
+.account-content {
+  align-self: center;
+  justify-self: center;
+  width: min(420px, calc(100% - 72px));
+  min-width: 0;
+  padding-block: 42px;
+}
+.account-content h1 {
+  font-family: var(--font-pixel);
+  font-weight: 400;
+  font-size: clamp(20px, 2.1vw, 30px);
+  line-height: 1.65;
+  letter-spacing: -.04em;
+}
+.account-intro { margin-block: 11px 24px; color: var(--muted); }
+.account-form { display: grid; gap: 15px; }
+.account-form label { display: grid; gap: 6px; font-size: 14px; font-weight: 600; }
+.account-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 47px;
+  padding: 8px 12px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: var(--paper);
+  font-size: 16px;
+  font-weight: 400;
+}
+.account-form .primary-button {
+  justify-content: center;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 3px;
+}
+.account-form .primary-button svg { width: 16px; height: 16px; }
+.account-error { color: var(--danger); font-size: 14px; }
+.account-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 20px; font-size: 14px; }
+.account-links a { color: var(--muted); }
+.account-links a:hover { color: var(--ink); }
+
+@media (max-width: 720px) {
+  .account-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; }
+  .account-art { padding-top: 52px; border-inline-end: 0; border-bottom: 1px solid var(--stroke); }
+  .account-art .pigeon-avatar {
+    --pigeon-line: 3px;
+    width: min(56vw, 180px);
+  }
+  .account-content { width: min(390px, calc(100% - 40px)); padding-block: 32px; }
+}

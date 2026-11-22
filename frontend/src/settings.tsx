@@ -1,21 +1,16 @@
 import { UserIcon } from '@phosphor-icons/react/dist/icons/User'
 import { SparkleIcon } from '@phosphor-icons/react/dist/icons/Sparkle'
 import { ShieldCheckIcon } from '@phosphor-icons/react/dist/icons/ShieldCheck'
-import { PaletteIcon } from '@phosphor-icons/react/dist/icons/Palette'
 import { CheckIcon } from '@phosphor-icons/react/dist/icons/Check'
-import { MoonIcon } from '@phosphor-icons/react/dist/icons/Moon'
 import { SignOutIcon } from '@phosphor-icons/react/dist/icons/SignOut'
-import { SunIcon } from '@phosphor-icons/react/dist/icons/Sun'
 import { TrashIcon } from '@phosphor-icons/react/dist/icons/Trash'
 import { useState, type FormEvent } from 'react'
-import { api, errorText, type Profile, type Theme } from './api'
+import { api, errorText, type Profile } from './api'
 import { Avatar, Modal } from './ui'
 
 type SettingsProps = {
   profile: Profile | null
-  theme: Theme
   onClose: () => void
-  onTheme: (theme: Theme) => void
   onProfile: (profile: Profile) => void
   onClear: () => Promise<void>
   onLogout: () => Promise<void>
@@ -24,13 +19,12 @@ type SettingsProps = {
 
 const settingsSections = [
   { id: 'profile', label: 'Профиль', Icon: UserIcon, requiresProfile: true },
-  { id: 'appearance', label: 'Оформление', Icon: PaletteIcon, requiresProfile: false },
   { id: 'agent', label: 'Агент', Icon: SparkleIcon, requiresProfile: true },
   { id: 'data', label: 'Данные', Icon: ShieldCheckIcon, requiresProfile: false },
 ] as const
 
-export function SettingsDialog({ profile, theme, onClose, onTheme, onProfile, onClear, onLogout, onDelete }: SettingsProps) {
-  const [section, setSection] = useState<(typeof settingsSections)[number]['id']>(profile ? 'profile' : 'appearance')
+export function SettingsDialog({ profile, onClose, onProfile, onClear, onLogout, onDelete }: SettingsProps) {
+  const [section, setSection] = useState<(typeof settingsSections)[number]['id']>(profile ? 'profile' : 'data')
   const [name, setName] = useState(profile?.name ?? '')
   const [instructions, setInstructions] = useState(profile?.instructions ?? '')
   const [currentPassword, setCurrentPassword] = useState('')
@@ -52,14 +46,6 @@ export function SettingsDialog({ profile, theme, onClose, onTheme, onProfile, on
     } finally {
       setSaving(false)
     }
-  }
-
-  function changeTheme(choice: Theme) {
-    if (theme === choice) return
-    void perform(async () => {
-      if (profile) onProfile(await api.settings({ theme: choice }))
-      onTheme(choice)
-    })
   }
 
   function save(event: FormEvent<HTMLFormElement>) {
@@ -103,19 +89,6 @@ export function SettingsDialog({ profile, theme, onClose, onTheme, onProfile, on
           }}><Icon size={18} weight="duotone"/> {label}</button>)}
       </nav>
       <div className="settings-form settings-pane">
-        {section === 'appearance' && <section className="setting-section">
-          <h3>Оформление</h3>
-          <div className="theme-options" aria-label="Тема">
-            <button type="button" className="theme-option" aria-pressed={theme === 'dark'} disabled={saving} onClick={() => changeTheme('dark')}>
-              <span className="theme-preview" aria-hidden="true"><i/><i/><i/></span>
-              <span><MoonIcon weight="duotone"/> Тёмная {theme === 'dark' && <CheckIcon className="theme-check" aria-hidden="true"/>}</span>
-            </button>
-            <button type="button" className="theme-option" aria-pressed={theme === 'light'} disabled={saving} onClick={() => changeTheme('light')}>
-              <span className="theme-preview theme-preview-light" aria-hidden="true"><i/><i/><i/></span>
-              <span><SunIcon weight="duotone"/> Светлая {theme === 'light' && <CheckIcon className="theme-check" aria-hidden="true"/>}</span>
-            </button>
-          </div>
-        </section>}
         {section === 'profile' && profile && <form className="setting-section" onSubmit={save}>
           <h3>Профиль</h3>
           <div className="setting-profile"><Avatar/><div><strong>{profile.name}</strong><p className="muted">{profile.email}</p></div></div>
