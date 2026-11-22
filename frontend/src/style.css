@@ -470,10 +470,59 @@ svg { flex: none; }
   color: transparent;
 }
 
-.ascii-pigeon pre, .pigeon-turntable canvas {
+.ascii-pigeon pre {
   mask-image: repeating-linear-gradient(to bottom, #000 0 1.5px, #0005 2px, #000 3px);
 }
 
+.pigeon-portrait, .pigeon-turntable canvas {
+  filter: grayscale(1) contrast(1.18);
+  mask-image: repeating-linear-gradient(to bottom,
+    #000 0 calc(var(--pigeon-line) * .18),
+    #0002 calc(var(--pigeon-line) * .56) calc(var(--pigeon-line) * .68),
+    #000 var(--pigeon-line));
+}
+[data-theme='dark'] :is(.pigeon-portrait, .pigeon-turntable canvas) {
+  filter: grayscale(1) contrast(.64) brightness(1.12);
+}
+.pigeon-portrait { position: relative; }
+.pigeon-portrait img { display: block; width: 100%; height: auto; }
+.pigeon-mouth {
+  display: none;
+  position: absolute;
+  inset: 0;
+  mask-image: radial-gradient(ellipse 18% 10% at 49.3% 27%, #000 81%, transparent);
+}
+.pigeon-avatar[data-speaking] .pigeon-mouth { display: block; }
+.pigeon-avatar[data-speaking] .pigeon-mouth img {
+  clip-path: inset(23% 0 0);
+  transform-origin: 50% 23%;
+  animation: pigeon-mouth .68s ease-in-out infinite;
+}
+.pigeon-mouth::after {
+  content: '';
+  position: absolute;
+  top: 23.1%;
+  left: 36%;
+  width: 27%;
+  height: 5.6%;
+  background: radial-gradient(ellipse at 50% 12%, #0b0808, #211818);
+  clip-path: polygon(0 9%, 24% 0, 50% 7%, 76% 0, 100% 9%, 92% 40%, 79% 72%, 65% 92%, 50% 100%, 35% 92%, 21% 72%, 8% 40%);
+  transform: scaleY(0);
+  transform-origin: center top;
+}
+.pigeon-avatar[data-speaking] .pigeon-mouth::after {
+  animation: pigeon-mouth-opening .68s ease-in-out infinite;
+}
+@keyframes pigeon-mouth {
+  24% { transform: scaleY(1.83); }
+  49% { transform: scaleY(1.17); }
+  73% { transform: scaleY(1.61); }
+}
+@keyframes pigeon-mouth-opening {
+  24% { transform: scaleY(1); }
+  49% { transform: scaleY(.22); }
+  73% { transform: scaleY(.73); }
+}
 .with-mascot .speech-bubble { min-height: calc(var(--avatar-width) * .43 + 18px); }
 
 .speech-bubble {
@@ -518,7 +567,9 @@ svg { flex: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .assistant-mascot, .speech-bubble.reveal .markdown, .spinner { animation: none; }
+  .assistant-mascot, .speech-bubble.reveal .markdown, .spinner,
+  .pigeon-avatar[data-speaking] .pigeon-mouth img,
+  .pigeon-avatar[data-speaking] .pigeon-mouth::after { animation: none; }
 }
 
 /* Размер аватара меняется в левом поле, позиция колонки ответа остаётся общей. */
@@ -536,21 +587,21 @@ svg { flex: none; }
   overflow: visible;
 }
 .awaiting-answer .assistant-mascot { height: calc(var(--avatar-width) * .91); }
-.assistant-mascot .ascii-pigeon {
-  --pigeon-width: var(--avatar-width);
+.assistant-mascot .pigeon-avatar {
+  --pigeon-line: 3px;
   position: absolute;
   top: 0;
   right: 0;
-  bottom: auto;
-  left: auto;
+  margin: 0;
+  width: var(--avatar-width);
   height: calc(var(--avatar-width) * .91);
   overflow: hidden;
-  transform: none;
+  pointer-events: none;
 }
-.with-mascot .speech-bubble::before { top: calc(var(--avatar-width) * .43); }
-[data-theme='dark'] .assistant-mascot .ascii-pigeon { filter: brightness(1.17); }
+.with-mascot .speech-bubble::before { top: min(calc(var(--avatar-width) * .43), calc(100% - 13px)); }
 
 .pigeon-turntable {
+  --pigeon-line: 4.33px;
   --pigeon-width: min(26vw, 365px, 32dvh);
   position: absolute;
   left: 77%;
@@ -558,6 +609,7 @@ svg { flex: none; }
   margin: 0;
   width: var(--pigeon-width);
   transform: translate(-50%, 50%);
+  border-radius: 12px;
 }
 .pigeon-turntable canvas {
   display: block;
@@ -565,10 +617,10 @@ svg { flex: none; }
   aspect-ratio: .57;
   cursor: grab;
   touch-action: pan-y;
-  border-radius: 12px;
 }
 .pigeon-turntable canvas:active { cursor: grabbing; }
-[data-theme='dark'] .pigeon-turntable canvas { filter: brightness(1.17); }
+.pigeon-turntable canvas:focus-visible { outline: 0; }
+.pigeon-turntable:has(canvas:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
 .markdown-rendered > :first-child { margin-top: 0; }
 .markdown-rendered > * + * { margin-top: .85em; }
 
@@ -591,6 +643,7 @@ svg { flex: none; }
 
 @media (max-width: 760px) {
   .pigeon-turntable {
+    --pigeon-line: 3px;
     --pigeon-width: clamp(79px, 16dvh, 120px);
     left: 50%;
 
