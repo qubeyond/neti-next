@@ -36,7 +36,7 @@
   text-decoration: none;
 }
 
-.site-brand .brand-mark { --brand-ink: var(--site-accent); background: var(--site-olive); color: #f6f5ef; }
+.site-brand .brand-mark { --brand-ink: var(--site-muted); color: var(--site-olive); }
 
 .site-button {
   display: inline-flex;

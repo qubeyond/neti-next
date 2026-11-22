@@ -100,12 +100,9 @@ svg { flex: none; }
   place-items: center;
   width: 31px;
   aspect-ratio: 1;
-  overflow: hidden;
-  color: var(--on-accent);
-  background: var(--accent);
-  border-radius: 9px;
+  color: var(--accent);
 }
-.brand-feather { display: block; width: 26px; transform-origin: 25% 82%; }
+.brand-feather { display: block; width: 28px; transform-origin: 25% 82%; }
 .brand-feather svg { display: block; width: 100%; }
 .brand-ink {
   position: absolute;
@@ -681,7 +678,6 @@ svg { flex: none; }
 .new-chat:hover:not(:disabled) { background: var(--accent-soft); }
 .tool-button, .send-button, .private-button { border-radius: 11px; }
 .landing-with-mascot .prompt { border-radius: 11px; }
-.shell .brand-mark { border-radius: 9px; }
 .profile-menu-anchor { display: flex; align-items: center; gap: 4px; }
 .profile-summary { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 7px 6px; }
 .profile-summary > span:last-child { display: grid; min-width: 0; }
