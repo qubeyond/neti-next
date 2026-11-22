@@ -1,12 +1,14 @@
 """Выполняет веб-ответ и при необходимости восстанавливает доказательства."""
 
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import perf_counter
 
 from agent.application.audit import Verification, verify_answer
 from agent.domain.admissions import graduate_admission_fact
 from agent.domain.errors import AgentError
-from agent.domain.grounding import check_answer, is_truncated, supported_list
+from agent.domain.grounding import check_answer, is_truncated, keep_web_evidence, supported_list
 from agent.domain.institution import institution_fact
 from agent.domain.ports import GenerateAnswer, ReadDocument, RewriteQuery, Search, SearchFactory
 from agent.domain.query import information_question, public_query, reference_text
@@ -82,8 +84,13 @@ class AnswerService:
     read: ReadDocument | None = None
     backup_search: SearchFactory | None = None
     rewrite: RewriteQuery | None = None
+    web_answer: GenerateAnswer | None = None
+    decide_source_match: Callable[[str, dict], str | None] | None = None
+    original_question: str = ""
 
-    def answer(self, question: str, *, model: str | None = None) -> dict:
+    def answer(
+        self, question: str, *, model: str | None = None, additional_query: str = ""
+    ) -> dict:
         question = information_question(question)
 
         if not question:
@@ -103,6 +110,19 @@ class AnswerService:
             }
 
         results, used_backup = self._search(search_query)
+
+        if self.web_answer is not None:
+            if (
+                extra := public_query(additional_query)
+            ) and extra.casefold() != search_query.casefold():
+                try:
+                    found, _ = self._search(extra)
+                    results = self._merge_search_results(results, found)
+                except AgentError:
+                    if not results:
+                        raise
+
+            return self._answer_web(question, results, model)
 
         reused = False
 
@@ -214,6 +234,130 @@ class AnswerService:
 
         return _with_follow_up(checked)
 
+    def _answer_web(self, question: str, results: list[SearchResult], model: str | None) -> dict:
+        assert self.web_answer is not None
+
+        if not results:
+            return {
+                "status": "unverified",
+                "answer": (
+                    "По этому запросу поиск вернул пустую выдачу. "
+                    "Если знаешь точное название программы или страницы, пришли его — "
+                    "по нему получится поискать точнее."
+                ),
+                "citations": [],
+                "blocks": [],
+            }
+
+        try:
+            with phase("generation"):
+                answer = self._web_candidate(question, results, model)
+        except AgentError:
+            answer = {
+                "status": "partial",
+                "answer": "",
+                "citations": [],
+                "gap": "Поиск сработал, но модель не смогла обработать найденные страницы.",
+            }
+
+        hint = answer.get("next_query")
+        retry_query = public_query(hint[:500]) if isinstance(hint, str) else ""
+
+        if retry_query and retry_query.casefold() != public_query(question).casefold():
+            try:
+                found = (
+                    self._search_backup(retry_query)
+                    if self.backup_search is not None
+                    else self._search(retry_query)[0]
+                )
+                sources = self._merge_search_results(results, found)
+
+                if sources != results:
+                    with phase("regeneration"):
+                        retry = self._web_candidate(question, sources, model)
+
+                    if retry["citations"] and (
+                        not answer["citations"]
+                        or retry["status"] == "answered"
+                        or len(retry["citations"]) > len(answer["citations"])
+                    ):
+                        answer = retry
+            except AgentError:
+                pass
+
+        if not answer["citations"] and answer.get("source_mismatch"):
+            return {
+                "status": "clarification",
+                "answer": "Не удалось уверенно сопоставить название с найденными страницами. "
+                "Можешь уточнить полное название или дать ссылку?",
+                "citations": [],
+            }
+
+        if not answer["citations"]:
+            citations = []
+            lines = []
+
+            for item in results[:2]:
+                title = public_query(reference_text(item["title"]))[:120]
+                title = re.sub(r"[^\w\s.,:!?«»()–—/+-]", "", title)
+                title = title or "Страница из поисковой выдачи"
+                ref = len(citations) + 1
+
+                citations.append(
+                    {
+                        "source": ref,
+                        "ref": ref,
+                        "url": item["url"],
+                        "quote": title,
+                        "verified": True,
+                    }
+                )
+                lines.append(f"- {title} 〔{ref}〕")
+
+            answer = {
+                **answer,
+                "status": "partial",
+                "answer": "Вот ближайшие к вопросу страницы из выдачи:\n" + "\n".join(lines),
+                "citations": citations,
+                "gap": answer.get("gap") or "По их фрагментам пока нельзя сделать вывод.",
+            }
+
+        if answer["status"] == "partial":
+            paragraphs = dict.fromkeys(
+                part for field in ("answer", "gap", "next_step") if (part := answer.get(field))
+            )
+            answer = {**answer, "answer": "\n\n".join(paragraphs)}
+
+        return answer
+
+    def _web_candidate(self, question: str, results: list[SearchResult], model: str | None) -> dict:
+        assert self.web_answer is not None
+
+        answer = keep_web_evidence(
+            self.original_question or question, self.web_answer(question, results, model=model)
+        )
+
+        if self.decide_source_match and answer["citations"]:
+            if self.decide_source_match(question, answer) in {"ambiguous", "different"}:
+                return {**answer, "citations": [], "source_mismatch": True}
+
+        return answer
+
+    def _merge_search_results(
+        self, results: list[SearchResult], found: list[SearchResult]
+    ) -> list[SearchResult]:
+        known = {document_key(item["url"]) for item in results}
+        merged = list(results)
+
+        for item in found:
+            key = document_key(item["url"])
+
+            if key and key not in known:
+                known.add(key)
+                merged.append(item)
+
+        return merged[: self.search_limit + self.recovery_limit]
+
     def _repair_supported(
         self, question: str, results: list[SearchResult], model: str | None
     ) -> dict | None:
@@ -224,7 +368,8 @@ class AnswerService:
             remaining_time(1)
 
             with phase("repair") as trace:
-                repaired = check_answer(question, self.repair(question, results, model=model))
+                draft = self.repair(question, results, model=model)
+                repaired = check_answer(question, draft)
                 trace["decision"] = repaired["status"]
 
             if not is_truncated(repaired):
@@ -232,6 +377,7 @@ class AnswerService:
 
                 if repaired["status"] in {"answered", "partial"}:
                     return _with_follow_up(repaired)
+
         except AgentError:
             pass
 

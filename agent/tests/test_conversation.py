@@ -9,9 +9,11 @@ from agent import composition
 from agent.app import app
 from agent.application import context
 from agent.application.dialogue import dialogue_reply
+from agent.application.generation import answer_with_source_ids
 from agent.application.service import AnswerService
+from agent.application.skills import ActiveSkills
 from agent.domain.conversation import conversational_reply
-from agent.domain.grounding import check_answer
+from agent.domain.grounding import check_answer, keep_web_evidence
 from agent.domain.institution import institution_fact
 from agent.domain.sources import SearchResult, evidence_sources
 
@@ -37,7 +39,7 @@ def test_product_introduction_has_no_sources_or_provider_calls(monkeypatch, ques
     assert response.status_code == 200
     assert response.json()["status"] == "answered"
     assert "Пигеон" in response.json()["answer"]
-    assert "вузам Новосибирска" in response.json()["answer"]
+    assert "Новосибирска" in response.json()["answer"]
     assert response.json()["citations"] == []
 
 
@@ -84,7 +86,7 @@ def test_greeting_in_factual_question_still_searches_and_skips_shared_chat(monke
     monkeypatch.setattr(
         composition,
         "_make_service",
-        lambda *_args: AnswerService(
+        lambda *_args, **_kwargs: AnswerService(
             search=search, generate=generate, source_limit=1000, search_limit=5, recovery_limit=1
         ),
     )
@@ -161,8 +163,7 @@ def test_subject_questions_are_not_swallowed(question):
         (
             "Расскажи про НГУ",
             "а MIT?",
-            "Расскажи кратко про университет Массачусетский технологический "
-            "институт (MIT) по официальным сведениям.",
+            "Расскажи кратко про университет MIT по официальным сведениям.",
         ),
         (
             "Где находится главный корпус НГУ?",
@@ -186,7 +187,7 @@ def test_model_can_reply_without_search_even_when_a_university_is_named(monkeypa
     def complete(_prompt, *, system_prompt, **_options):
         assert "помощник по вузам" in system_prompt
 
-        return {"answer": "Здравствуйте! Прошу выдать справку."}
+        return {"answer": "Понял, ты учишься в НГУ."}
 
     def unexpected(*_args, **_kwargs):
         pytest.fail("Модель не запросила поиск.")
@@ -194,12 +195,10 @@ def test_model_can_reply_without_search_even_when_a_university_is_named(monkeypa
     monkeypatch.setattr(composition, "ask", complete)
     monkeypatch.setattr(composition, "_make_service", unexpected)
 
-    result = composition.answer_question(
-        "Составь короткое письмо в деканат НГУ для запроса справки"
-    )
+    result = composition.answer_question("Я учусь в НГУ.")
 
     assert result["status"] == "answered"
-    assert "Прошу" in result["answer"]
+    assert result["answer"] == "Понял, ты учишься в НГУ."
     assert result["citations"] == []
 
 
@@ -313,44 +312,11 @@ def test_overview_abstains_when_abbreviation_has_two_different_expansions():
     assert institution_fact("Как полностью называется МГУ?", sources, {}) is None
 
 
-def test_first_turn_overview_normalizes_lowercase_university():
-    result = context.resolve("расскажи про нгту", [])
-
-    assert result == ("Расскажи кратко про университет НГТУ по официальным сведениям.", "")
-
-
-@pytest.mark.parametrize("alias", ["мит", "MIT", "а мит?"])
-def test_mit_alias_after_unrelated_turn_keeps_the_right_university(alias):
-    history: list[context.Turn] = [
-        {"role": "user", "text": "чд"},
-        {"role": "assistant", "text": "О каком вузе речь?"},
-    ]
-
-    result, clarification = context.resolve(alias, history)
-
-    assert "Массачусетский технологический институт (MIT)" in result
-    assert result.startswith("Расскажи кратко")
-    assert not clarification
-
-
-def test_mit_alias_can_complete_a_university_followup():
-    history: list[context.Turn] = [
-        {"role": "user", "text": "Где взять справку?"},
-        {"role": "assistant", "text": "О каком вузе речь?"},
-    ]
-
-    result, clarification = context.resolve("мит", history)
-
-    assert result.startswith("Где взять справку в вузе")
-    assert "Массачусетский технологический институт (MIT)" in result
-    assert not clarification
-
-
-def test_mit_alias_is_expanded_inside_a_russian_question():
-    result, clarification = context.resolve("Какие программы предлагает МИТ?", [])
-
-    assert result == "Какие программы предлагает Массачусетский технологический институт (MIT)?"
-    assert not clarification
+@pytest.mark.parametrize(
+    "question", ["расскажи про нгту", "Какие программы предлагает МИТ?", "братан уники европы"]
+)
+def test_user_question_keeps_original_names_for_domain_decision(question):
+    assert context.resolve(question, []) == (question, "")
 
 
 def test_short_banter_keeps_original_text_for_conversation_routing():
@@ -363,13 +329,6 @@ def test_short_banter_keeps_original_text_for_conversation_routing():
         "грязнульки мне нужны",
         "",
     )
-
-
-def test_slang_about_europe_keeps_universities_in_the_search_query():
-    question, clarification = context.resolve("братан топовые уникик европы какие", [])
-
-    assert "университеты европы" in question
-    assert not clarification
 
 
 def test_audit_rejection_recovers_exact_institution_name():
@@ -485,7 +444,7 @@ def test_conversation_sends_roles_and_current_turn():
     assert reply == {"search_question": "Адрес главного корпуса ТГУ в Томске"}
 
 
-@pytest.mark.parametrize(("answer", "university"), [("мит", "MIT"), ("НГУ", "НГУ")])
+@pytest.mark.parametrize(("answer", "university"), [("мит", "мит"), ("НГУ", "НГУ")])
 def test_university_reply_leaves_unknown_term_to_clarify(monkeypatch, answer, university):
     history: list[context.Turn] = [
         {"role": "user", "text": "Что нужно, чтобы поступить на дс?"},
@@ -639,7 +598,16 @@ def test_address_from_previous_turn_cannot_replace_current_name_lookup():
 
 
 @pytest.mark.parametrize(
-    "reaction", ["чел", "чеел", "БРО, да ладно", "ты серьёзно?", "грязнулька я", "😂"]
+    "reaction",
+    [
+        "чел",
+        "чеел",
+        "БРО, да ладно",
+        "ты серьёзно?",
+        "грязнулька я",
+        "лан, а если я грязнулька?",
+        "😂",
+    ],
 )
 def test_short_reaction_responds_without_restarting_previous_search(monkeypatch, reaction):
     history: list[context.Turn] = [
@@ -652,14 +620,14 @@ def test_short_reaction_responds_without_restarting_previous_search(monkeypatch,
         assert question == reaction
         assert tools is None
         assert history == []
-        assert "В диалоге упоминался вуз MIT" in system_prompt
-        assert "короткая разговорная реакция" in system_prompt
+        assert "Ответь одной фразой" in system_prompt
 
         return {"answer": answer}
 
     def unexpected(*_args, **_options):
         pytest.fail("Реакция запустила повторный поиск по предыдущей теме.")
 
+    monkeypatch.setattr(composition, "decide", lambda *_args, **_kwargs: "banter")
     monkeypatch.setattr(composition, "ask", complete)
     monkeypatch.setattr(composition, "_make_service", unexpected)
 
@@ -684,7 +652,10 @@ def test_conversational_address_does_not_hide_a_new_question():
         complete=complete,
     )
 
-    assert result == {"search_question": "Какие сроки подачи документов в магистратуру МГУ?"}
+    assert result == {
+        "search_question": "Какие сроки подачи документов в магистратуру МГУ?",
+        "web_policy": "admission",
+    }
 
 
 def test_casual_reply_preserves_a_short_previous_joke():
@@ -721,7 +692,7 @@ def test_discovery_retries_a_direct_claim_and_keeps_the_search_context():
 
     def complete(*_args, tools=None, system_prompt="", **_options):
         assert tools and tools[0]["function"]["name"] == "web_search"
-        assert "просьба подобрать реальные возможности" in system_prompt
+        assert "Подбери реальные варианты по открытым источникам" in system_prompt
 
         return next(outcomes)
 
@@ -773,7 +744,7 @@ def test_decision_recognizes_an_implicit_request_without_running_search_itself()
 
     def complete(*_args, tools=None, system_prompt="", **_options):
         assert tools and tools[0]["function"]["name"] == "web_search"
-        assert "просьба подобрать реальные возможности" in system_prompt
+        assert "Подбери реальные варианты по открытым источникам" in system_prompt
 
         return _web_call("Куда подать студенческий стартап в ИТМО?")
 
@@ -854,11 +825,473 @@ def test_independent_supported_option_survives_a_bad_citation_only_after_audit(a
         assert result["citations"] == []
 
 
-def test_specialization_short_reply_keeps_program_discovery():
+def test_research_continuation_retries_unsupported_facts_even_after_reply_decision():
     history: list[context.Turn] = [
-        {"role": "user", "text": "найди сам чето по направлению ит"},
-        {"role": "assistant", "text": "Тебе ближе программирование, Data Science или игры?"},
+        {"role": "user", "text": "хочу на магистратуру в Stanford по ИИ"},
+        {"role": "assistant", "text": "Какая область тебя интересует?"},
+    ]
+    query = "Stanford master's student AI agents research labs"
+    outcomes = iter([{"answer": "У них есть лаборатория и проект. Рассказать?"}, _web_call(query)])
+
+    result = dialogue_reply(
+        "ресерч в агентах",
+        history,
+        composition.load_settings(),
+        attachment_text="",
+        complete=lambda *_args, **_options: next(outcomes),
+        decide=lambda *_args: "reply",
+    )
+
+    assert result == {"search_question": query, "discovery": True}
+
+
+def test_submission_followup_asks_where_the_documents_go():
+    history: list[context.Turn] = [
+        {"role": "user", "text": "хочу на магистратуру"},
+        {"role": "assistant", "text": "Документы: транскрипты и рекомендации〔1〕."},
     ]
 
-    assert context.resolve("дс", history) == ("Подбери учебные программы по Data Science", "")
-    assert context.resolve("дс", history[0:1]) == ("дс", "")
+    assert context.resolve("это куда", history) == (
+        "Куда подавать документы для поступления на обсуждаемую программу?",
+        "",
+    )
+
+
+@pytest.mark.parametrize(
+    ("answer", "status"),
+    [
+        ("Заявку подают через портал〔1〕.", "answered"),
+        ("Заявку подают через портал〔5〕.", "unverified"),
+        ("Заявку подают на https://apply.example.edu/wrong〔1〕.", "unverified"),
+        ("Заявку подают на https://apply.example.edu/right〔1〕.", "answered"),
+    ],
+)
+def test_inline_evidence_uses_citation_position_and_known_urls(answer, status):
+    url = "https://apply.example.edu/right"
+    draft = {
+        "status": "answered",
+        "answer": answer,
+        "malformed_citations": 0,
+        "citations": [
+            {"source": 5, "ref": 1, "url": url, "quote": "Подайте заявку.", "verified": True}
+        ],
+    }
+
+    assert check_answer("Куда подавать документы?", draft)["status"] == status
+
+
+@pytest.mark.parametrize(
+    ("reply", "status"),
+    [
+        ("Интересует магистратура или исследовательская группа?", "answered"),
+        ("У них отбор 5%. Хочешь подробности?", "clarification"),
+    ],
+)
+def test_brief_topic_cannot_publish_uncited_university_facts(reply, status):
+    result = dialogue_reply(
+        "стенфорд айи",
+        [],
+        composition.load_settings(),
+        attachment_text="",
+        complete=lambda *_args, **_options: {"answer": reply},
+    )
+
+    assert result["status"] == status
+    assert "5%" not in result["answer"]
+
+
+def test_unused_bad_citation_does_not_discard_a_cited_answer():
+    url = "https://catalog.example.edu/program"
+    good = {"source": 3, "ref": 1, "url": url, "quote": "MS in Computer Science", "verified": True}
+    draft = {
+        "status": "answered",
+        "answer": "Программа MS in Computer Science〔1〕.",
+        "malformed_citations": 0,
+        "citations": [good, {**good, "ref": 2, "verified": False}],
+    }
+
+    checked = check_answer("Как называется программа?", draft)
+
+    assert checked["status"] == "answered"
+    assert checked["citations"] == [good]
+
+
+@pytest.mark.parametrize("amount", ["90000 USD", "$90000", "90000 рублей"])
+def test_web_dosearch_retains_cited_part_and_drops_unsupported_amount(amount):
+    source: SearchResult = {
+        "url": "https://example.edu/admissions",
+        "title": "Admissions",
+        "snippet": "Apply using the admissions portal.",
+    }
+    citation = {
+        "source": 1,
+        "ref": 1,
+        "url": source["url"],
+        "quote": source["snippet"],
+        "verified": True,
+    }
+
+    def web_answer(*_args, **_options):
+        return {
+            "status": "partial",
+            "answer": f"Заявку подают через портал〔1〕.\nОбучение стоит {amount}〔1〕.",
+            "citations": [citation],
+            "next_query": "стоимость программы",
+            "gap": "Стоимость в доступных материалах не указана.",
+            "next_step": "Подскажи год поступления, чтобы поискать тарифы.",
+        }
+
+    def backup_search():
+        def search(query):
+            assert query == "стоимость программы"
+
+            return []
+
+        return search
+
+    service = AnswerService(
+        search=lambda _: [source],
+        generate=web_answer,
+        web_answer=web_answer,
+        verify=lambda *_: (False, None),
+        backup_search=backup_search,
+        source_limit=500,
+        search_limit=5,
+        recovery_limit=1,
+    )
+
+    result = service.answer("Куда подавать заявку и сколько стоит обучение?")
+
+    assert result["status"] == "partial"
+    assert result["answer"] == (
+        "Заявку подают через портал〔1〕.\n\n"
+        "Стоимость в доступных материалах не указана.\n\n"
+        "Подскажи год поступления, чтобы поискать тарифы."
+    )
+    assert result["citations"] == [citation]
+
+
+def test_campaign_keeps_the_link_and_removes_an_undated_deadline():
+    first = {"source": 1, "ref": 1, "quote": "Документы подаются до 25 июля."}
+    second = {"source": 2, "ref": 2, "quote": "Кампания 2027 года. Заявки принимаются онлайн."}
+    checked = keep_web_evidence(
+        "До какого числа подать документы в НГУ в 2027?",
+        {
+            "status": "answered",
+            "answer": "Документы подаются до 25 июля〔1〕.\nПодать заявление можно онлайн〔2〕.",
+            "citations": [first, second],
+        },
+    )
+
+    assert checked["status"] == "partial"
+    assert checked["answer"] == "Подать заявление можно онлайн〔2〕."
+    assert checked["citations"] == [second]
+
+
+@pytest.mark.parametrize(
+    ("question", "query", "discovery"),
+    [
+        (
+            "хочу на магу туда и ресерч по агентам. "
+            "где подаваться и сколько стоит для набора 2032?",
+            "Stanford graduate AI admissions application tuition 2032",
+            True,
+        ),
+        ("расскажи чем MIT от МФТИ отличается", "сравнение вузов MIT и МФТИ", False),
+        (
+            "где в НГУ посмотреть список программ бакалавриата?",
+            "НГУ официальный список программ бакалавриата",
+            False,
+        ),
+        (
+            "Где у НГУ правила подачи документов на бакалавриат?",
+            "НГУ официальные правила подачи документов на бакалавриат",
+            True,
+        ),
+    ],
+)
+def test_scoped_factual_followup_retries_when_model_answers_without_search(
+    question, query, discovery
+):
+    history: list[context.Turn] = [
+        {"role": "user", "text": "стенфорд айи"},
+        {"role": "assistant", "text": "Можно посмотреть программы и лаборатории Стэнфорда."},
+    ]
+    outcomes = iter([{"answer": "Будет стоить 140000 долларов."}, _web_call(query)])
+
+    result = dialogue_reply(
+        question,
+        history,
+        composition.load_settings(),
+        attachment_text="",
+        complete=lambda *_args, **_options: next(outcomes),
+    )
+
+    assert result["search_question"] == query
+    assert bool(result.get("discovery")) is discovery
+
+    if "список программ" in question:
+        assert result["web_policy"] == "official_page"
+
+
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        (
+            "перечисли всё, что ты умеешь",
+            "Я Пигеон. Ищу информацию о вузах Новосибирска и других городов.",
+        ),
+        (
+            "расскажи про листы в питоне",
+            "Я по вузам. Могу помочь найти информацию о них.",
+        ),
+    ],
+)
+def test_profile_and_python_tutorial_stay_in_product_scope(monkeypatch, question, expected):
+    def unexpected(*_args, **_options):
+        pytest.fail("Эта реплика не должна уходить на генерацию или в поиск.")
+
+    monkeypatch.setattr(composition, "decide", lambda *_args, **_kwargs: "off_topic")
+    monkeypatch.setattr(composition, "ask", unexpected)
+    monkeypatch.setattr(composition, "make_searcher", unexpected)
+
+    result = composition.answer_question(
+        question,
+        history=[
+            {"role": "assistant", "text": "Я умею объяснять Python и писать код."},
+        ],
+    )
+
+    assert result["answer"] == expected
+    assert result["citations"] == []
+
+
+@pytest.mark.parametrize("choice", ["search", "reply", None])
+def test_admission_after_service_falls_back_to_search_on_an_unverified_direct_answer(choice):
+    question = (
+        "я пришел с армии и хочу пойти в вуз на бакалавра как мне это сделать и есть ли поблажки"
+    )
+
+    def decide(current, _recent):
+        assert current == question
+
+        return choice
+
+    result = dialogue_reply(
+        question,
+        [],
+        composition.load_settings(),
+        attachment_text="",
+        decide=decide,
+        complete=lambda *_args, **_options: {"answer": "Всем после службы положена квота 10%."},
+    )
+
+    assert result == {
+        "search_question": question,
+        "check_admission_rights": True,
+        "web_policy": "admission",
+    }
+
+
+@pytest.mark.parametrize(
+    ("question", "previous_question"),
+    [
+        ("как выиграть стипендию нети некст", ""),
+        ("я про хакатон нгту", "как победить в neti next"),
+    ],
+)
+def test_named_student_opportunity_falls_back_to_search(question, previous_question):
+    history: list[context.Turn] = [
+        {"role": "user", "text": previous_question},
+        {"role": "assistant", "text": "Это стипендия от Positive Technologies."},
+    ]
+
+    def complete(*_args, **_options):
+        return {"answer": "Хакатон идёт два дня, призы выплачивают каждый месяц."}
+
+    result = dialogue_reply(
+        question,
+        history,
+        composition.load_settings(),
+        attachment_text="",
+        complete=complete,
+    )
+
+    assert question in result["search_question"]
+    assert "Positive Technologies" not in result["search_question"]
+
+    if previous_question:
+        assert "neti next" in result["search_question"].casefold()
+
+
+@pytest.mark.parametrize("policy", ["official_page", "admission", "funding", "event", "search"])
+def test_domain_decision_requires_search_even_if_answer_model_skips_tool(policy):
+    question = "а у этого варианта как?"
+    result = dialogue_reply(
+        question,
+        [],
+        composition.load_settings(),
+        attachment_text="",
+        decide=lambda *_args: policy,
+        complete=lambda *_args, **_options: {"answer": "Там всё стандартно."},
+    )
+
+    assert result["search_question"] == question
+
+    if policy != "search":
+        assert result["web_policy"] == policy
+
+
+def test_reply_review_reroutes_unverified_claims_for_an_unseen_program():
+    question = "и что дают победителям?"
+    answer = "Победители получают ежегодную выплату и стажировку у организатора. " * 3
+
+    def review(current, _recent, proposed):
+        assert current == question
+        assert proposed == answer.strip()
+
+        return "funding"
+
+    result = dialogue_reply(
+        question,
+        [],
+        composition.load_settings(),
+        attachment_text="",
+        decide=lambda *_args: "reply",
+        review_reply=review,
+        complete=lambda *_args, **_options: {"answer": answer},
+    )
+
+    assert result == {"search_question": question, "web_policy": "funding"}
+
+
+def test_wrong_subject_sources_do_not_become_the_answer():
+    source: SearchResult = {
+        "url": "https://example.edu/event",
+        "title": "Конкурс другого вуза",
+        "snippet": "Условия участия в другом конкурсе.",
+    }
+
+    def write(*_args, **_kwargs):
+        return {
+            "status": "answered",
+            "answer": "Конкурс другого вуза проходит очно〔1〕.",
+            "citations": [
+                {"source": 1, "ref": 1, "url": source["url"], "quote": source["snippet"]}
+            ],
+        }
+
+    service = AnswerService(
+        search=lambda _: [source],
+        generate=write,
+        web_answer=write,
+        decide_source_match=lambda *_args: "different",
+        source_limit=500,
+        search_limit=5,
+        recovery_limit=1,
+    )
+
+    result = service.answer("Условия участия в моём конкурсе.")
+
+    assert result["status"] == "clarification"
+    assert result["citations"] == []
+    assert "Конкурс другого вуза" not in result["answer"]
+
+
+def test_web_event_keeps_location_when_team_size_is_not_supported():
+    citation = {
+        "source": 1,
+        "ref": 1,
+        "url": "https://example.edu/event",
+        "quote": "Защита очная. Команды по 4 человека. На выступление даётся 5 минут.",
+    }
+    result = keep_web_evidence(
+        "Как пройдёт защита?",
+        {
+            "status": "answered",
+            "answer": "Защита очная〔1〕.\nКоманда от 2 до 4 человек〔1〕.",
+            "citations": [citation],
+        },
+    )
+
+    assert result["status"] == "partial"
+    assert result["answer"] == "Защита очная〔1〕."
+    assert result["citations"] == [citation]
+
+
+@pytest.mark.parametrize("read_succeeds", [True, False])
+def test_web_primary_page_preserves_search_evidence_and_adds_verified_passage(read_succeeds):
+    url = "https://example.edu/fellowships"
+    source: SearchResult = {
+        "url": url,
+        "title": "Fellowships",
+        "snippet": "Applications open in January.",
+    }
+    passage = "There are five awards of €6,500 gross per academic year."
+    calls = []
+
+    def read(address):
+        assert address == url
+
+        calls.append("read")
+
+        return "Fellowships\n" + passage if read_succeeds else ""
+
+    def write(question, **_):
+        fragment = json.loads(question)["search_fragments"][0]["text"]
+
+        assert source["snippet"] in fragment
+        assert (passage in fragment) == read_succeeds
+
+        calls.append("write")
+
+        return {"answer": '{"answer":"Заявки открываются в январе〔1〕.","status":"answered"}'}
+
+    def review(question, **_):
+        assert "draft" in json.loads(question)
+
+        calls.append("review")
+
+        answer = "Заявки открываются в январе〔1〕."
+
+        if read_succeeds:
+            answer += "\nВыплата — 6500 евро за учебный год〔1〕."
+
+        return {
+            "answer": json.dumps(
+                {"answer": answer, "status": "partial", "source_quotes": {"1": passage}}
+            )
+        }
+
+    question = "Как подать заявку на Fellowships и сколько платят?"
+    result = answer_with_source_ids(
+        question,
+        [source],
+        complete=write,
+        system_prompt="",
+        source_limit=500,
+        select=lambda *_args, **_kwargs: ActiveSkills((), (), frozenset(), False),
+        read=read,
+        review_claims=review,
+    )
+    result = keep_web_evidence(question, result)
+
+    assert calls == ["read", "write", "review"]
+    assert "Заявки открываются в январе" in result["answer"]
+    assert ("6500 евро" in result["answer"]) == read_succeeds
+    assert result["citations"][0].get("display_quote") == (passage if read_succeeds else None)
+
+
+def test_web_campaign_retains_explicitly_general_deadline_when_archive_is_missing():
+    citation = {"source": 1, "ref": 1, "quote": "Applications typically close on March 31."}
+    checked = keep_web_evidence(
+        "Когда закончилась подача документов в 2026 году?",
+        {
+            "status": "partial",
+            "answer": "Обычные сроки: подача до 31 марта〔1〕.\nВ 2026 подача до 31 марта〔1〕.",
+            "gap": "Архив именно этой кампании не нашёл.",
+            "citations": [citation],
+        },
+    )
+
+    assert checked["answer"] == "Обычные сроки: подача до 31 марта〔1〕."

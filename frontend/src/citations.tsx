@@ -14,7 +14,12 @@ export function sourceLocation(citation: Citation) {
   if (!address) return undefined
   const url = new URL(address)
   if (url.hash.includes(':~:') || url.pathname.toLowerCase().endsWith('.pdf')) return url.href
-  const quote = Array.from(citation.quote.trim()).slice(0, 220).join('')
+  const parts = citation.quote.split(/\.{3}|…|\||\n|(?:^|\s)#{1,6}\s+/u)
+    .map((part) => part.replace(/\*\*|__/gu, '').replace(/\s+/gu, ' ').trim())
+  const phrase = parts.find((part) => part.split(' ').length >= 4) ?? parts[0] ?? ''
+  const words = phrase.split(' ')
+  const quote = (phrase.length <= 120 ? phrase : words.slice(0, 7).join(' '))
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
   if (quote.length < 12) return url.href
   url.hash += ':~:text=' + encodeURIComponent(quote).replaceAll('-', '%2D')
   return url.href
@@ -85,7 +90,7 @@ export function CitationLink({ reference }: { reference: CitationReference }) {
   }
 
   return <>
-    {target ? <a {...props} href={target} target="_blank" rel="noreferrer"/> :
+    {target ? <a {...props} href={target} target="_blank" rel="noopener noreferrer"/> :
       <button {...props} type="button" onClick={(event) => {
         if (reference.open) { setHovered(false); setFocused(false); reference.open() }
         else { place(event.currentTarget); setFocused(true) }

@@ -8,14 +8,20 @@ from agent.domain.recovery import document_key
 from agent.domain.tables import AGGREGATE, TOTAL
 
 _BULLET = re.compile(r"^(?:[-*+]|[1-9]\d*\.)[ \t]+[^\n]+$", re.M)
-_CITATION_REF = re.compile(r"〔([1-9][0-9]*)〕")
+_CITATION_REF = re.compile(r"〔([1-9][0-9]{0,2})〕|\[([1-9][0-9]{0,2})\](?![([])")
+_NUMBER_TEXT = r"\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?"
 _CRITICAL_NUMBER = re.compile(
-    r"(?<!\d)(\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?)\s*"
-    r"(?:₽|руб\w*|мест\b|балл\w*|%|тыс\.|января|февраля|марта|апреля|мая|июня|"
-    r"июля|августа|сентября|октября|ноября|декабря)",
+    rf"(?:[₽€$£]\s*({_NUMBER_TEXT})|(?<!\d)"
+    rf"(?:({_NUMBER_TEXT})\s*(?:[-–—]|до)\s*)?({_NUMBER_TEXT})\s*"
+    r"(?:₽|€|\$|£|USD\b|EUR\b|GBP\b|RUB\b|руб\w*|евро\b|доллар\w*|фунт\w*|"
+    r"мест\b|балл\w*|студент\w*|человек\w*|участник\w*|минут\w*|час\w*|дн(?:я|ей)\b|"
+    r"день\b|%|тыс\.|января|"
+    r"февраля|марта|апреля|мая|июня|"
+    r"июля|августа|сентября|октября|ноября|декабря))",
     re.IGNORECASE,
 )
-_NUMBER = re.compile(r"\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?")
+_NUMBER = re.compile(_NUMBER_TEXT)
+_ENGLISH_GROUPED_AMOUNT = re.compile(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d,.])")
 
 
 _ACCOUNT = re.compile(r"\b(?:парол\w*|уч[её]тн\w*\s+запис\w*|аккаунт\w*)\b", re.I)
@@ -28,22 +34,23 @@ _LETTER_KIND = re.compile(r"\b(?:заказн\w*|простым|простое|�
 
 
 _ADMISSION = re.compile(
-    r"\b(?:до какой даты|когда|срок\w*|дедлайн\w*)\b.*"
-    r"\b(?:прием\w*|подач\w*|документ\w*)\b",
+    r"\b(?:до как(?:ой|ого|их) (?:дат\w*|числ\w*)|когда|срок\w*|дедлайн\w*|период\w*)\b",
     re.I,
 )
+_APPLICATION_TIMING = re.compile(r"\b(?:прием|пода|документ|поступ|раунд)\w*\b", re.I)
 _CAMPAIGN_YEAR = re.compile(r"\b20\d{2}\b")
 _DATE_CLAIM = re.compile(
     r"\b(?:\d{1,2}[./]\d{1,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|"
     r"июля|августа|сентября|октября|ноября|декабря))\b",
     re.I,
 )
+_GENERAL_DATES = re.compile(r"\b(?:обычно|обычные сроки|общие сроки)\b", re.I)
 
 
 def _missing_campaign(question: str, result: dict, citations: list[dict]) -> str:
     years = set(_CAMPAIGN_YEAR.findall(question))
 
-    if len(years) != 1 or not _ADMISSION.search(question.replace("ё", "е")):
+    if len(years) != 1 or not admission_timing(question):
         return ""
 
     if not _DATE_CLAIM.search(result["answer"]) and not result.get("events"):
@@ -64,6 +71,12 @@ def _missing_campaign(question: str, result: dict, citations: list[dict]) -> str
             return ""
 
     return year
+
+
+def admission_timing(question: str) -> bool:
+    return bool(
+        _ADMISSION.search(question) and _APPLICATION_TIMING.search(question.replace("ё", "е"))
+    )
 
 
 def _procedure_supported(question: str, answer: str, citations: list[dict]) -> bool:
@@ -114,16 +127,24 @@ def _supported_numbers(answer: str, citations: list[dict], blocks: list[dict]) -
     def normal(value: str) -> str:
         return "".join(value.split()).replace(",", ".")
 
-    cited = {
-        normal(number) for citation in citations for number in _NUMBER.findall(citation["quote"])
-    }
+    cited = set()
+
+    for citation in citations:
+        evidence = citation["quote"]
+
+        cited.update(normal(number) for number in _NUMBER.findall(evidence))
+
+        cited.update(
+            number.replace(",", "") for number in _ENGLISH_GROUPED_AMOUNT.findall(evidence)
+        )
 
     calculated = {Decimal(item["result"]) for item in blocks if item.get("kind") == "calculation"}
 
-    return all(
-        normal(number) in cited or Decimal(normal(number)) in calculated
-        for number in _CRITICAL_NUMBER.findall(answer)
+    claims = (
+        normal(number) for match in _CRITICAL_NUMBER.findall(answer) for number in match if number
     )
+
+    return all(number in cited or Decimal(number) in calculated for number in claims)
 
 
 def _public_reference(url: object) -> bool:
@@ -136,6 +157,16 @@ def _public_reference(url: object) -> bool:
             or urlsplit(url).scheme not in {"http", "https"}
         )
     )
+
+
+def _inline_refs(answer: str) -> set[int]:
+    return {int(number or legacy) for number, legacy in _CITATION_REF.findall(answer)}
+
+
+def _answer_links(text: str) -> set[str]:
+    return {
+        address.rstrip(".,!?)]") for address in _ANSWER_URL.findall(_CITATION_REF.sub(" ", text))
+    }
 
 
 def check_answer(question: str, result: dict) -> dict:
@@ -163,9 +194,26 @@ def check_answer(question: str, result: dict) -> dict:
 
     citations = result["citations"]
     attachment_ids = {item.get("attachment_id") for item in result.get("sources") or []}
+    refs = {item["ref"] for item in citations if item.get("ref")}
+    used_refs = _inline_refs(result["answer"])
+
+    if used_refs and used_refs <= refs and not (result.get("blocks") or result.get("events")):
+        citations = [item for item in citations if item.get("ref") in used_refs]
+        result = {**result, "citations": citations}
+
+    sources = result.get("sources") or []
+    linked = _answer_links(result["answer"])
+    source_links = {source.get("url") for source in sources} | {
+        url for source in sources for url in _answer_links(source.get("text", ""))
+    }
+
+    source_links.update(item.get("url") for item in citations)
+
     trusted = (
         citations
         and not result["malformed_citations"]
+        and used_refs <= (refs or set(range(1, len(citations) + 1)))
+        and all(_public_reference(url) and url in source_links for url in linked)
         and all(
             item["verified"]
             and (
@@ -176,7 +224,6 @@ def check_answer(question: str, result: dict) -> dict:
         )
         and _supported_numbers(result["answer"], citations, result.get("blocks") or [])
     )
-    sources = result.get("sources") or []
     has_table = any(item["text"].count("|") >= 4 for item in sources)
     needs_total = AGGREGATE.search(question) and has_table
     total_supported = any(TOTAL.search(item.get("quote") or "") for item in citations)
@@ -249,7 +296,7 @@ def supported_list(question: str, draft: dict) -> dict | None:
     used_refs = set()
 
     for item in items:
-        refs = {int(ref) for ref in _CITATION_REF.findall(item)}
+        refs = _inline_refs(item)
 
         if not refs or not refs <= verified:
             continue
@@ -284,3 +331,70 @@ def supported_list(question: str, draft: dict) -> dict | None:
 
 def is_truncated(result: dict) -> bool:
     return (result.get("generation") or {}).get("finish_reason") in {"length", "max_tokens"}
+
+
+def keep_web_evidence(question: str, result: dict) -> dict:
+    if not result["citations"]:
+        return result
+
+    paragraphs = re.split(r"\n+", result["answer"])
+    citations = {item["ref"]: item for item in result["citations"]}
+    source_titles = {item["source"]: item["title"] for item in result.get("sources", [])}
+    years = set(_CAMPAIGN_YEAR.findall(question))
+    kept = []
+
+    for paragraph in paragraphs:
+        refs = _inline_refs(paragraph)
+
+        used = [citations[ref] for ref in refs if ref in citations]
+        general_dates = bool(
+            result["status"] == "partial"
+            and result.get("gap")
+            and _GENERAL_DATES.search(paragraph)
+            and not _CAMPAIGN_YEAR.search(paragraph)
+        )
+
+        if (
+            len(years) == 1
+            and admission_timing(question)
+            and _DATE_CLAIM.search(paragraph)
+            and not general_dates
+        ):
+            used = [
+                item
+                for item in used
+                if years
+                <= set(
+                    _CAMPAIGN_YEAR.findall(
+                        f"{source_titles.get(item['source'], '')} {item['quote']}"
+                    )
+                )
+            ]
+
+        if (
+            refs
+            and len(used) == len(refs)
+            and _supported_numbers(paragraph, used, result.get("blocks", []))
+            and (
+                general_dates
+                or not _missing_campaign(question, {**result, "answer": paragraph}, used)
+            )
+        ):
+            text = re.sub(r"\[([^\]\n]+)\]\(https?://[^)\n]+\)", r"\1", paragraph)
+            kept.append(_ANSWER_URL.sub("", text).strip())
+        elif paragraph.strip().endswith("?") and not refs and not _ANSWER_URL.search(paragraph):
+            kept.append(paragraph.strip())
+
+    answer = "\n\n".join(kept)
+    refs = _inline_refs(answer)
+
+    return {
+        **result,
+        "status": "partial"
+        if len(kept) < len([line for line in paragraphs if line.strip()])
+        else result["status"],
+        "answer": answer if refs else "",
+        "citations": [item for ref, item in citations.items() if ref in refs],
+        "events": [event for event in result.get("events", []) if event["citation"] in refs],
+        "blocks": result.get("blocks", []) if refs == set(citations) else [],
+    }

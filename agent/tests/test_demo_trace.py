@@ -43,7 +43,7 @@ def test_trace_is_authenticated_and_carries_parent_and_metrics(monkeypatch):
     ]
     assert events[1]["parent"] == events[0]["id"]
     assert events[2]["usage"] == {"total_tokens": 17}
-    assert events[-1]["answer"]["suggestions"] == ["НГУ", "НГТУ НЭТИ", "НГПУ"]
+    assert "suggestions" not in events[-1]["answer"]
 
 
 def test_blocks_ignore_invented_values_and_calculate_with_cited_operands():

@@ -29,12 +29,10 @@ function renderCitations(text: string, references?: ReadonlyMap<number, Citation
   let markdown = references?.size ? text.replace(citationCluster, (cluster) => {
     const seen = new Set<number>()
     const links: string[] = []
-    for (const [original, numbered, legacy] of cluster.matchAll(citationMarker)) {
+    for (const [, numbered, legacy] of cluster.matchAll(citationMarker)) {
       const ref = Number(numbered ?? legacy)
       const citation = references.get(ref)
-      if (!citation) {
-        links.push(original)
-      } else if (!seen.has(citation.number)) {
+      if (citation && !seen.has(citation.number)) {
         seen.add(citation.number)
         const anchor = citation.id + '-ref-' + ref
         anchors.set(anchor, citation)

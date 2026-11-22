@@ -1,13 +1,21 @@
 import { PigeonIcon } from './pigeon-icon'
 import { useEffect, useRef, type ReactNode } from 'react'
 
+const pigeonWing = (
+  <path fill="currentColor" fillRule="evenodd" d="M33.6 25.3C29.8 17.6 25.8 14 17.9 11.6 11.8 9.8 6.8 6.6 2.9 3.5c-.6 6.4 2.1 11.5 7.4 15.4l-5.8-2c2 5 6.2 8.4 12.3 10.2l-5.7-.4c3.5 4.4 8.4 6.2 14 5.5l-3.2 1.3c5.4 1.5 9.2-.8 11.9-5.2l-.2-3ZM14.7 15.6c5.7 1.4 10.1 4.1 14.2 8.9-4.2-3.2-8.2-5.2-13.1-6.3l-1.1-2.6Zm5.6 7.2c3.8.9 6.6 2.6 9.2 5.3-3-1.5-5.8-2.4-9.7-2.9l.5-2.4Z"/>
+)
+
 export function BrandMark({ className = '' }: { className?: string }) {
   return (
     <span className={'brand-mark ' + className} aria-hidden="true">
-      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M16 10a10 10 0 0 0-9.5-2v14.5a10 10 0 0 1 9.5 2 10 10 0 0 1 9.5-2V8a10 10 0 0 0-9.5 2v14.5"/>
-        <path d="M10 12.5c1.3 0 2.2.24 3 .7m-3 3.2c1.3 0 2.2.24 3 .7m6-3.9c.8-.46 1.7-.7 3-.7" opacity=".7"/>
-      </svg>
+      <span className="brand-flight">
+        <svg viewBox="0 0 72 37" fill="none">
+          <g className="brand-wing brand-wing-left">{pigeonWing}</g>
+          <g className="brand-wing brand-wing-right">
+            <g transform="translate(72 0) scale(-1 1)">{pigeonWing}</g>
+          </g>
+        </svg>
+      </span>
     </span>
   )
 }

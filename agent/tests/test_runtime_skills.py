@@ -87,7 +87,7 @@ def test_attachments_activate_skill_but_cannot_choose_other_skills(monkeypatch):
             "answer": json.dumps(
                 {
                     "status": "answered",
-                    "answer": _QUOTE,
+                    "answer": _QUOTE + "〔1〕",
                     "citations": [{"source": 1, "quote": _QUOTE}],
                     "events": [{"date": "2027-07-17", "title": "Подать документы", "citation": 1}],
                 }
@@ -149,7 +149,7 @@ def test_http_followup_selects_skills_from_resolved_turn(monkeypatch):
             "answer": json.dumps(
                 {
                     "status": "answered",
-                    "answer": _QUOTE,
+                    "answer": _QUOTE + "〔1〕",
                     "citations": [{"source": 1, "quote": _QUOTE}],
                     "events": [{"date": "2027-07-17", "title": "Подать документы", "citation": 1}],
                 }

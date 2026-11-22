@@ -15,17 +15,15 @@ _TERM_CLARIFICATION = re.compile(
     re.I,
 )
 
-_UNIVERSITY_SLANG = re.compile(r"\bуник(?:и(?:к)?|ов|ам|ах|ами)?\b", re.I)
-_MIT_ALIAS = re.compile(r"\b(?:MIT|МИТ)\b", re.I)
-_MIT_SHORT = re.compile(r"\s*(?:(?:а|и)\s+)?(?:MIT|МИТ)[!?.,\s]*", re.I)
-_MIT_NAME = "Массачусетский технологический институт (MIT)"
-_DATA_SCIENCE_REPLY = re.compile(r"(?:дс|ds|data science)[?!.\s]*", re.I)
-_DATA_SCIENCE_OPTION = re.compile(r"\b(?:data science|дата сайенс|наука о данных)\b", re.I)
-_PICK_PROGRAM = re.compile(r"\b(?:найди|подбери|посоветуй|поищи|ищу|подбираю)\b", re.I)
+_SUBMISSION_FOLLOW_UP = re.compile(
+    r"^(?:а )?(?:(?:это|их) куда|куда (?:это|их|отправлять|загружать))[?!.\s]*$", re.I
+)
+_APPLICATION_CONTEXT = re.compile(r"\b(?:магистратур\w*|поступ\w*|при[её]м\w*)\b", re.I)
+_APPLICATION_DOCUMENTS = re.compile(r"\b(?:документ\w*|транскрипт\w*|statement of purpose)\b", re.I)
 
 _OVERVIEW = re.compile(r"^(?:расскажи(?:те)?|что знаешь)\s+(?:о|об|про)\s+", re.I)
 _OVERVIEW_SWITCH = re.compile(
-    r"^(?:[аАиИ] )?([А-ЯЁA-Z]{2,12}|(?i:мгу|мфти|нгу|нгту|нгпу|вшэ|спбгу|сгугит|сгупс))"
+    r"^(?:[аАиИ] )?([А-ЯЁа-яёA-Za-z]{2,12})"
     r"[?!.\s]*$"
 )
 _FULL_NAME = re.compile(
@@ -68,58 +66,33 @@ class Turn(TypedDict):
 
 
 def resolve(question: str, history: list[Turn]) -> tuple[str, str]:
-    mit_alias = _MIT_SHORT.fullmatch(question)
-
     if history and history[-1]["role"] == "assistant":
         last_reply = history[-1]["text"]
-        short_name = mit_alias or _INSTITUTION_ABBREVIATION.fullmatch(question.strip())
 
-        if short_name and _INSTITUTION_CLARIFICATION.search(last_reply):
-            if term := _TERM_CLARIFICATION.search(last_reply):
-                university = "MIT" if mit_alias else question.strip()
-
+        if _INSTITUTION_ABBREVIATION.fullmatch(question.strip().upper()):
+            if _INSTITUTION_CLARIFICATION.search(last_reply) and (
+                term := _TERM_CLARIFICATION.search(last_reply)
+            ):
                 return (
                     question,
-                    f"Понял, речь про {university}. Что ты имеешь в виду под «{term[1]}»?",
+                    f"Понял, речь про {question.strip()}. Что ты имеешь в виду под «{term[1]}»?",
                 )
-
-    if mit_alias:
-        if (
-            len(history) >= 2
-            and history[-1]["role"] == "assistant"
-            and _INSTITUTION_CLARIFICATION.search(history[-1]["text"])
-        ):
-            previous = history[-2]["text"]
-
-            if history[-2]["role"] == "user" and _clarify(previous):
-                return f"{previous.rstrip(' ?.!')} в вузе {_MIT_NAME}?", ""
-
-        return f"Расскажи кратко про университет {_MIT_NAME} по официальным сведениям.", ""
-
-    if not re.search(r"массачусетск|massachusetts", question, re.I):
-        question = _MIT_ALIAS.sub(_MIT_NAME, question)
-
-    question = _UNIVERSITY_SLANG.sub("университеты", question)
-
-    overview = _OVERVIEW.match(question)
-
-    if overview and (named := _OVERVIEW_SWITCH.fullmatch(question[overview.end() :].strip())):
-        university = named[1].upper()
-
-        return f"Расскажи кратко про университет {university} по официальным сведениям.", ""
 
     if not history:
         return question, _clarify(question)
 
     if (
-        len(history) >= 2
+        _SUBMISSION_FOLLOW_UP.fullmatch(question)
         and history[-1]["role"] == "assistant"
-        and history[-2]["role"] == "user"
-        and _DATA_SCIENCE_REPLY.fullmatch(question)
-        and _DATA_SCIENCE_OPTION.search(history[-1]["text"])
-        and _PICK_PROGRAM.search(history[-2]["text"])
+        and any(
+            turn["role"] == "user" and _APPLICATION_CONTEXT.search(turn["text"])
+            for turn in history[-6:]
+        )
     ):
-        return "Подбери учебные программы по Data Science", ""
+        if _APPLICATION_DOCUMENTS.search(history[-1]["text"]):
+            return "Куда подавать документы для поступления на обсуждаемую программу?", ""
+
+        return "Где официальная страница обсуждаемой программы и куда подать документы?", ""
 
     if (
         len(history) >= 2

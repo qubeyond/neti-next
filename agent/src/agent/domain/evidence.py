@@ -109,6 +109,19 @@ def _verified_excerpts(quote: str, text: str) -> list[str]:
     return excerpts
 
 
+def verbatim_excerpt(value: object, snippet: str, evidence: str) -> str:
+    if not isinstance(value, str):
+        return ""
+
+    quote = " ".join(value.split())
+
+    if 18 <= len(quote) <= 180 and not re.search(r"\.{3}|…|\|", quote):
+        if _find_excerpt(evidence, quote) >= 0 and _find_excerpt(_plain(snippet), quote) >= 0:
+            return quote
+
+    return ""
+
+
 def prepare_sources(results: list[SearchResult], limit: int, *, question: str = "") -> list[dict]:
     sources = []
 

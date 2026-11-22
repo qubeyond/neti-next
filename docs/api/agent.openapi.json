@@ -324,7 +324,7 @@
             "items": {
               "$ref": "#/components/schemas/HistoryTurn"
             },
-            "maxItems": 6,
+            "maxItems": 16,
             "title": "History",
             "type": "array"
           },

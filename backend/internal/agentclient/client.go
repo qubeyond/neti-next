@@ -83,7 +83,8 @@ func (agent Client) prepare(ctx context.Context, input chat.AgentRequest, report
 		Role string `json:"role"`
 		Text string `json:"text"`
 	}
-	history := make([]historyTurn, 0, 6)
+	const historyLimit = 16
+	history := make([]historyTurn, 0, min(historyLimit, len(input.History)))
 	for _, message := range input.History {
 		if message.Text == "" || message.Role == "assistant" && message.State != "complete" {
 			continue
@@ -93,7 +94,7 @@ func (agent Client) prepare(ctx context.Context, input chat.AgentRequest, report
 	}
 	payload := map[string]any{"question": question}
 	if len(history) > 0 {
-		payload["history"] = history[max(0, len(history)-6):]
+		payload["history"] = history[max(0, len(history)-historyLimit):]
 	}
 	if input.Message.Quote != "" {
 		payload["quoted_text"] = input.Message.Quote

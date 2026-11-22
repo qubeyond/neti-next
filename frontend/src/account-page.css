@@ -21,6 +21,7 @@
   letter-spacing: -.04em;
   text-decoration: none;
 }
+.site-brand .brand-mark { width: clamp(54px, 15vw, 68px); }
 .account-layout {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
