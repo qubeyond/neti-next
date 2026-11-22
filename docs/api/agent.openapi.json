@@ -349,6 +349,12 @@
             "maxLength": 1200,
             "title": "Quoted Text",
             "type": "string"
+          },
+          "user_instructions": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "User Instructions",
+            "type": "string"
           }
         },
         "required": [

@@ -18,6 +18,7 @@ from agent.application.skills import select_skills
 from agent.config import (
     PROMPTS_DIRECTORY,
     SKILLS_DIRECTORY,
+    USER_INSTRUCTIONS,
     flag,
     load_settings,
     optional,
@@ -263,6 +264,7 @@ def answer_question(
     quoted_text: str = "",
     history: list[Turn] | None = None,
     image_source: dict | None = None,
+    user_instructions: str = "",
 ) -> dict:
     settings = load_settings()
     trace_token = None
@@ -276,11 +278,15 @@ def answer_question(
             deadline("", positive_int(settings, "AGENT_TURN_TIMEOUT_SECONDS"))
         )
 
+    preferences_token = USER_INSTRUCTIONS.set(user_instructions)
+
     try:
         return _answer_turn(
             question, model, attachment_text, quoted_text, history or [], settings, image_source
         )
     finally:
+        USER_INSTRUCTIONS.reset(preferences_token)
+
         if time_token is not None:
             DEADLINE.reset(time_token)
 
@@ -307,7 +313,7 @@ def _answer_turn(
         }
 
     if image_source is None and not (
-        attachment_text or quoted_text or is_casual_reaction(question)
+        USER_INSTRUCTIONS.get() or attachment_text or quoted_text or is_casual_reaction(question)
     ):
         if reply := conversational_reply(question):
             status, text = reply

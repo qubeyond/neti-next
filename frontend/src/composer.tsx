@@ -13,13 +13,15 @@ type Props = {
   disabled: boolean
   pending: boolean
   compact: boolean
+  attachmentLimit?: number
+  acceptFiles?: string
   onSubmit: () => void
   onCancel?: () => void
   cancelling: boolean
   onTranscribe: (audio: Blob) => Promise<void>
 }
 
-export function Composer({ draft, update, inputRef, disabled, pending, compact, onSubmit, onCancel, cancelling, onTranscribe }: Props) {
+export function Composer({ draft, update, inputRef, disabled, pending, compact, attachmentLimit = 5, acceptFiles, onSubmit, onCancel, cancelling, onTranscribe }: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
   const attachmentTrigger = useRef<HTMLButtonElement>(null)
@@ -85,11 +87,13 @@ export function Composer({ draft, update, inputRef, disabled, pending, compact, 
   function attach(added: File[]) {
     const current = latestFiles.current
     const valid = added.filter((file) => file.size > 0 && file.size <= 16 * 1024 * 1024)
-    const next = [...current, ...valid].slice(0, 5)
+    const next = [...current, ...valid].slice(0, attachmentLimit)
     latestFiles.current = next
     update({ files: next })
     setWarning(valid.length !== added.length ? 'Файл должен быть непустым и не больше 16 МБ.' :
-      current.length + valid.length > 5 ? 'К сообщению можно прикрепить до пяти файлов.' : '')
+      current.length + valid.length > attachmentLimit ?
+        attachmentLimit === 1 ? 'Для трассировки можно прикрепить один файл.' : 'К сообщению можно прикрепить до пяти файлов.' :
+        '')
   }
 
   function closeAttachments() {
@@ -150,7 +154,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, compact, 
   }
 
   const exceedsTextLimit = Array.from(draft.text).length > 2000
-  const attachmentsDisabled = disabled || draft.files.length >= 5
+  const attachmentsDisabled = disabled || draft.files.length >= attachmentLimit
   const submitEnabled = !disabled && !pending && recording === null && !startingMic && !transcribing && !exceedsTextLimit && Boolean(draft.text.trim() || draft.files.length)
   const attachmentOptions = <>
     <button type="button" className="soft-button" disabled={attachmentsDisabled} onClick={() => { fileInput.current?.click(); closeAttachments() }}>
@@ -181,7 +185,7 @@ export function Composer({ draft, update, inputRef, disabled, pending, compact, 
           }} />
         <div className="composer-controls">
           <div className="compose-tools attachment-anchor">
-            <input hidden multiple ref={fileInput} type="file" aria-label="Файлы" onChange={(event) => { attach(Array.from(event.target.files ?? [])); event.target.value = '' }} />
+            <input hidden multiple={attachmentLimit > 1} ref={fileInput} type="file" aria-label="Файлы" accept={acceptFiles} onChange={(event) => { attach(Array.from(event.target.files ?? [])); event.target.value = '' }} />
             <input hidden ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" aria-label="Фото документа"
               onChange={(event) => {
                 const photo = event.target.files?.[0]

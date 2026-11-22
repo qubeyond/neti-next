@@ -1,0 +1,139 @@
+.demo-header h1 {
+  font: 400 clamp(.94rem, 2.4vw, 1.65rem)/1.5 var(--font-pixel);
+  letter-spacing: -.04em;
+}
+
+.trace-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.trace-header-actions > span { color: var(--muted); font-size: .82rem; }
+
+.trace-select { min-width: 0; }
+
+.trace-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: .82rem;
+  text-align: start;
+}
+
+.trace-select-trigger:is(:hover, [aria-expanded='true']), .trace-select-menu button:is(:hover, :focus-visible) {
+  background: var(--accent-faint);
+}
+
+.trace-bracket { flex: none; font-family: 'Workspace Mono', ui-monospace, monospace; color: var(--muted); }
+.trace-bracket::before { content: '[+]'; }
+.trace-select-trigger[aria-expanded='true'] .trace-bracket::before, .trace-disclosure[open] .trace-bracket::before { content: '[-]'; }
+
+.trace-select-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 5px;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  box-shadow: var(--shadow);
+}
+
+.trace-select-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 37px;
+  padding: 5px 7px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: .83rem;
+  text-align: start;
+}
+
+.trace-select-menu button:focus-visible { outline-offset: -2px; }
+.trace-select-menu [aria-checked='true'] { background: var(--accent-faint); font-weight: 650; }
+.trace-check { visibility: hidden; }
+.trace-select-menu [aria-checked='true'] .trace-check { visibility: visible; }
+
+.trace-disclosure summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+  padding-block: 3px;
+}
+.trace-disclosure summary::-webkit-details-marker { display: none; }
+.trace-disclosure summary:hover { color: var(--accent-hover); }
+.trace-disclosure blockquote { margin: 5px 0 0 2.5rem; color: var(--muted); }
+
+.trace-compose-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  color: var(--muted);
+}
+.trace-compose-meta kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--stroke);
+  border-radius: 3px;
+  font: inherit;
+  background: var(--paper);
+}
+.trace-compose-meta .soft-button { font-size: .78rem; }
+
+.trace-result-header {
+  padding-bottom: 9px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--stroke);
+}
+.trace-result-header h2 { margin-bottom: 0; }
+.trace-result-status {
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--sage);
+  color: var(--sage-ink);
+  padding: 3px 7px;
+  font-size: .79rem;
+}
+.trace-result-status:is([data-status='partial'], [data-status='unverified']) { background: var(--peach); color: var(--peach-ink); }
+
+.trace-result-body.with-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+.trace-result-text { min-width: 0; max-width: 72ch; }
+.trace-result-notes { margin-top: 14px; padding-inline-start: 9px; border-inline-start: 2px solid var(--stroke); color: var(--muted); font-size: .84rem; }
+.trace-result-notes p + p { margin-top: 5px; }
+.trace-evidence { min-width: 0; padding-inline-start: 18px; border-inline-start: 1px solid var(--stroke); }
+.trace-evidence > section + section { margin-top: 17px; }
+.trace-evidence h3 { display: flex; gap: 8px; align-items: baseline; margin: 0; font-size: .9rem; }
+.trace-evidence h3 span { color: var(--muted); font-size: .8rem; font-weight: 400; }
+.trace-evidence .trace-disclosure { margin-top: 6px; padding-top: 5px; font-size: .84rem; overflow-wrap: anywhere; }
+.trace-source-link { margin-inline-start: 2.5rem; display: inline-flex; gap: 5px; align-items: center; margin-top: 5px; }
+.trace-evidence .source-photo { margin-top: 7px; }
+
+@media (max-width: 700px) {
+  .trace-result-body.with-evidence { grid-template-columns: 1fr; gap: 15px; }
+  .trace-evidence { padding: 13px 0 0; border: 0; border-top: 1px solid var(--stroke); }
+}
