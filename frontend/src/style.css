@@ -93,48 +93,54 @@ svg { flex: none; }
 .sidebar-open .sidebar { visibility: visible; }
 .sidebar-brand { display: flex; align-items: center; gap: 9px; margin: 21px 12px 0 20px; white-space: nowrap; }
 .sidebar-brand strong { font-size: 1.18rem; font-weight: 800; letter-spacing: -.045em; }
-.brand-mark { display: block; flex: none; width: 53px; color: var(--accent); }
-.brand-flight, .brand-flight svg { display: block; width: 100%; }
-.brand-flight svg { overflow: visible; }
-.brand-wing { transform-box: view-box; }
-.brand-wing-left {
-  --wing-fold: -13deg;
-  --wing-open: 5deg;
-  transform-origin: 33px 25px;
+.brand-mark {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 31px;
+  aspect-ratio: 1;
+  color: var(--accent);
 }
-.brand-wing-right {
-  --wing-fold: 13deg;
-  --wing-open: -5deg;
-  transform-origin: 39px 25px;
+.brand-feather { display: block; width: 28px; transform-origin: 25% 82%; }
+.brand-feather svg { display: block; width: 100%; }
+.brand-ink {
+  position: absolute;
+  inset: auto auto 5px 8px;
+  width: 11px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--brand-ink, currentColor);
+  opacity: .8;
+  transform-origin: left;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .brand-wing { animation: pigeon-wings-arrive .76s cubic-bezier(.22,.7,.33,1) both; }
-  .brand-flight { animation: pigeon-lands .76s cubic-bezier(.22,.7,.33,1) both; }
-  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-wing {
-    animation: pigeon-wingbeat 1.12s ease-in-out both;
+  .brand-feather { animation: feather-lands .95s cubic-bezier(.2,.65,.3,1) both; }
+  .brand-ink { animation: feather-writes .95s ease-out both; }
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-feather {
+    animation: feather-flick .65s ease-in-out both;
   }
-  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-flight {
-    animation: pigeon-lifts 1.12s ease-in-out both;
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-ink {
+    animation: feather-ink-flick .65s ease-out both;
   }
 }
-@keyframes pigeon-wings-arrive {
-  0% { transform: rotate(var(--wing-fold)) scaleX(.62); }
-  52% { transform: rotate(var(--wing-open)) scaleX(1.02); }
-  100% { transform: none; }
-}
-@keyframes pigeon-lands {
-  0% { opacity: 0; transform: translateY(-4px); }
+@keyframes feather-lands {
+  0% { opacity: 0; transform: translate(2px, -4px) rotate(-21deg); }
   33% { opacity: 1; }
-  70% { transform: translateY(.6px); }
-  100% { transform: none; }
+  61% { transform: translate(-.7px, .6px) rotate(10deg); }
+  100% { transform: translate(0) rotate(0); }
 }
-@keyframes pigeon-wingbeat {
-  19%, 58% { transform: rotate(var(--wing-fold)) scaleX(.62) scaleY(1.07); }
-  39%, 81% { transform: rotate(var(--wing-open)) scaleX(1.02); }
+@keyframes feather-writes {
+  0%, 52% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
 }
-@keyframes pigeon-lifts {
-  19%, 58% { transform: translateY(-2.5px); }
-  39%, 81% { transform: translateY(-.5px); }
+@keyframes feather-flick {
+  32% { transform: translate(1px, -2px) rotate(-17deg); }
+  66% { transform: translate(-.5px, .5px) rotate(8deg); }
+}
+@keyframes feather-ink-flick {
+  38% { transform: scaleX(.42); }
+  82% { transform: scaleX(1.12); }
 }
 .close-sidebar { margin-left: auto; }
 .icon-button, .mini-button {
