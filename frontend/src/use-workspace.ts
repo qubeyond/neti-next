@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ApiError, errorText, type Chat, type ChatEvent, type ChatSummary, type Profile, type Session } from './api'
+import { joinGuestChats, readGuestCache, writeGuestCache, type GuestCache } from './guest-cache'
 
 const accountSession: Session = {}
 
-export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null) => void) {
-  const [session, setSession] = useState<Session | null>(guest ? null : accountSession)
+export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null) => void, keepGuest: boolean) {
+  const [initial] = useState(() => keepGuest ? readGuestCache() : {})
+  const cache = useRef(initial)
+  const [session, setSession] = useState<Session | null>(guest ? initial.token ? { guestToken: initial.token } : null : accountSession)
   const [chats, setChats] = useState<ChatSummary[]>([])
-  const [chat, setChat] = useState<Chat | null>(null)
-  const [active, setActive] = useState<string | null>(null)
+  const [chat, setChat] = useState<Chat | null>(initial.chat ?? null)
+  const [archive, setArchive] = useState(initial.archive)
+  const [active, setActive] = useState<string | null>(initial.active ?? null)
   const [notice, setNotice] = useState('')
   const [connected, setConnected] = useState(false)
   const sessionRef = useRef(session)
@@ -22,9 +26,15 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
     return () => {
       alive.current = false
       const previous = sessionRef.current
-      if (previous?.guestToken) void api.endGuest(previous).catch(() => {})
+      if (previous?.guestToken && !keepGuest) void api.endGuest(previous).catch(() => {})
     }
-  }, [])
+  }, [keepGuest])
+
+  const saveGuest = useCallback((patch: GuestCache) => {
+    if (!keepGuest) return
+    cache.current = { ...cache.current, ...patch }
+    writeGuestCache(cache.current)
+  }, [keepGuest])
 
   const startSession = useCallback(async () => {
     if (sessionRef.current) return sessionRef.current
@@ -37,11 +47,12 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
         }
         sessionRef.current = next
         setSession(next)
+        saveGuest({ token })
         return next
       }).finally(() => { guestStart.current = null })
     }
     return guestStart.current
-  }, [])
+  }, [saveGuest])
 
   const setActiveChat = useCallback((id: string | null) => {
     if (activeRef.current === id) return
@@ -49,7 +60,21 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
     activeRef.current = id
     setChat(null)
     setActive(id)
-  }, [])
+    saveGuest({ active: id ?? undefined, chat: undefined })
+  }, [saveGuest])
+
+  const archiveGuest = useCallback(() => {
+    const saved = joinGuestChats(cache.current.archive, cache.current.chat)
+    if (!saved) return
+    const archived = {
+      ...saved,
+      messages: saved.messages.map((message) => message.state === 'working'
+        ? { ...message, state: 'failed' as const, error: 'Этот ответ не успел сохраниться.' }
+        : message),
+    }
+    setArchive(archived)
+    saveGuest({ archive: archived, chat: undefined })
+  }, [saveGuest])
 
   const readError = useCallback((who: Session, error: unknown) => {
     if (sessionRef.current !== who) return
@@ -61,16 +86,19 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
       sessionRef.current = null
       setSession(null)
       setChats([])
+      archiveGuest()
+      saveGuest({ token: undefined, chat: undefined, active: undefined })
       setActiveChat(null)
+      if (keepGuest) return
     }
     setNotice(errorText(error))
-  }, [onProfile, setActiveChat])
+  }, [archiveGuest, keepGuest, onProfile, saveGuest, setActiveChat])
 
   const loadList = useCallback(async (who: Session) => {
     const sequence = ++listRequest.current
     try {
       const next = await api.chats(who)
-      if (sequence !== listRequest.current || !alive.current) return
+      if (sequence !== listRequest.current || !alive.current || sessionRef.current !== who) return
       setChats(next)
     } catch (error) {
       if (sequence === listRequest.current && alive.current) readError(who, error)
@@ -82,13 +110,18 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
     const sequence = ++chatRequest.current
     try {
       const next = await api.chat(who, id)
-      if (sequence === chatRequest.current && alive.current) setChat(next)
+      if (sequence === chatRequest.current && alive.current && sessionRef.current === who) {
+        saveGuest({ chat: next })
+        setChat(next)
+      }
     } catch (error) {
       if (sequence !== chatRequest.current || !alive.current) return
-      if (error instanceof ApiError && error.status === 404) setActiveChat(null)
-      else readError(who, error)
+      if (error instanceof ApiError && error.status === 404) {
+        archiveGuest()
+        setActiveChat(null)
+      } else readError(who, error)
     }
-  }, [readError, setActiveChat])
+  }, [archiveGuest, readError, saveGuest, setActiveChat])
 
   useEffect(() => {
     if (active && session) queueMicrotask(() => { void loadChat(session, active) })
@@ -173,7 +206,7 @@ export function useWorkspace(guest: boolean, onProfile: (profile: Profile | null
   }
 
   return {
-    active, chat, chats, session, notice, setNotice, waiting, startSession,
+    active, chat: joinGuestChats(archive, chat), archivedMessages: archive?.messages, chats, session, notice, setNotice, waiting, startSession,
     setActiveChat, createChat, removeChat, clearChats, loadChat, loadList,
   }
 }

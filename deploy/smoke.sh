@@ -43,7 +43,9 @@ probe() (
   "${stack[@]}" up --build -d --wait --wait-timeout 90
   port=$("${stack[@]}" port frontend 8080)
   address="http://$port"
-  curl --fail --silent --show-error "$address/" | grep -F '<title>Пигеон</title>'
+  for route in / /chat /login /register; do
+    curl --fail --silent --show-error "$address$route" | grep -F '<title>Пигеон</title>'
+  done
   curl --fail --silent --show-error "$address/api/health" | grep -F '{"status":"ok"}'
   curl --silent --show-error "$address/api/v1/chats" | python3 -c '
 import json, sys
@@ -74,7 +76,7 @@ from urllib.request import Request, urlopen
 base = "http://inference:8002/inference"
 with urlopen(base + "/v1/capabilities", timeout=5) as response:
     capabilities = json.load(response)
-assert set(capabilities["models"]) == {"llm", "asr", "ocr"}
+assert set(capabilities["models"]) == {"llm", "asr", "ocr", "decision"}
 assert capabilities["configured"] is False
 request = Request(
     base + "/v1/generate",
@@ -89,6 +91,20 @@ except HTTPError as error:
     assert "detail" in json.load(error)
 else:
     raise AssertionError("Expected an unconfigured provider error")
+decision = Request(
+    base + "/v1/decide",
+    data=json.dumps({
+        "state": "test", "instructions": "select a route",
+        "choices": {"search": "lookup", "reply": "direct reply"},
+    }).encode(),
+    headers={"Content-Type": "application/json"},
+)
+try:
+    urlopen(decision, timeout=5)
+except HTTPError as error:
+    assert error.code == 503, error.code
+else:
+    raise AssertionError("Expected an unconfigured decision provider error")
 '
   image=$("${stack[@]}" images -q agent)
   docker run --rm --network "$AGENT_DOCKER_NETWORK" --entrypoint python "$image" -c '

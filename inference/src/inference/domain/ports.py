@@ -2,11 +2,21 @@
 
 from typing import Protocol
 
-from inference.domain.entities import Capabilities, Completion, Generation, Recognition, Scan
+from inference.domain.entities import (
+    Capabilities,
+    ChoiceRequest,
+    ChoiceResult,
+    Completion,
+    Generation,
+    Recognition,
+    Scan,
+)
 
 
 class Provider(Protocol):
     def generate(self, request: Generation) -> Completion: ...
+
+    def decide(self, request: ChoiceRequest) -> ChoiceResult: ...
 
     def transcribe(self, data: bytes, audio_format: str) -> Recognition: ...
 

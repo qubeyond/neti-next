@@ -20,6 +20,29 @@ from agent.runtime import DISCONNECTED
 from agent.trace import TRACE
 
 _NDJSON = "application/x-ndjson"
+_ACTIVITY_OPERATIONS = {
+    "resolve_context",
+    "route_turn",
+    "search",
+    "backup_search",
+    "read",
+    "select_skills",
+    "generation",
+    "regeneration",
+    "verify",
+}
+_ACTIVITY_FIELDS = {
+    "type",
+    "id",
+    "operation",
+    "duration_ms",
+    "outcome",
+    "provider",
+    "domains",
+    "count",
+    "active_skills",
+    "sources",
+}
 
 
 def _admit(authorization: str, capacity: BoundedSemaphore, *, demo: bool = False) -> None:
@@ -66,7 +89,8 @@ def _answer_response(result: dict) -> AnswerResponse:
         if result["status"] in {"answered", "partial"}
         else []
     )
-    used_refs = {int(ref) for ref in re.findall(r"〔([1-9][0-9]{0,2})〕", result["answer"])}
+    markers = re.findall(r"〔([1-9][0-9]{0,2})〕|\[([1-9][0-9]{0,2})\](?![([])", result["answer"])
+    used_refs = {int(numbered or legacy) for numbered, legacy in markers}
 
     used_refs.update(item.citation for item in events)
 
@@ -91,7 +115,7 @@ def _answer_response(result: dict) -> AnswerResponse:
             {
                 "kind": "gap",
                 "title": "Нужно уточнить",
-                "note": "Укажите вуз и период или приложите документ с нужным условием.",
+                "note": "Пришлите официальную страницу или документ с нужным условием.",
             }
         ]
 
@@ -136,13 +160,24 @@ def create_router(answer_question: Callable[..., dict]) -> APIRouter:
         "/v1/answers",
         tags=["answers"],
         operation_id="createAgentAnswer",
+        response_model=AnswerResponse,
         response_model_exclude_defaults=True,
-        responses=responses(401, 411, 413, 422, 429, 500, 502, 503, 504),
+        responses={
+            200: {"content": {_NDJSON: {"schema": {"type": "string"}}}},
+            **responses(401, 411, 413, 422, 429, 500, 502, 503, 504),
+        },
     )
     async def create_answer(
         request: QuestionRequest, http_request: Request, authorization: str = Header(default="")
-    ) -> AnswerResponse:
+    ) -> AnswerResponse | StreamingResponse:
         _admit(authorization, capacity)
+
+        if _NDJSON in http_request.headers.get("accept", ""):
+            return StreamingResponse(
+                events(request, activity_only=True),
+                media_type=_NDJSON,
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
 
         disconnected = Event()
         scope = DISCONNECTED.set(disconnected)
@@ -160,14 +195,35 @@ def create_router(answer_question: Callable[..., dict]) -> APIRouter:
             DISCONNECTED.reset(scope)
             capacity.release()
 
-    async def events(request: QuestionRequest) -> AsyncIterator[str]:
+    async def events(
+        request: QuestionRequest, *, activity_only: bool = False
+    ) -> AsyncIterator[str]:
         queue: Queue[dict] = Queue()
         loop = get_running_loop()
         disconnected = Event()
 
+        activity_spans: set[str] = set()
+
         def emit(event: dict) -> None:
-            if not disconnected.is_set():
-                loop.call_soon_threadsafe(queue.put_nowait, event)
+            if disconnected.is_set():
+                return
+
+            if activity_only:
+                kind = event["type"]
+
+                if kind == "span_start" and event.get("operation") in _ACTIVITY_OPERATIONS:
+                    activity_spans.add(event["id"])
+                elif kind == "span_end" and event["id"] in activity_spans:
+                    activity_spans.remove(event["id"])
+                elif kind in {"span_start", "span_end"}:
+                    return
+
+                if kind in {"span_start", "span_end"}:
+                    event = {key: value for key, value in event.items() if key in _ACTIVITY_FIELDS}
+                elif kind == "answer":
+                    event = {"type": kind, "answer": event["answer"]}
+
+            loop.call_soon_threadsafe(queue.put_nowait, event)
 
         async def run() -> None:
             scope = DISCONNECTED.set(disconnected)

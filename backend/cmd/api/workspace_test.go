@@ -353,7 +353,7 @@ func TestWorkspaceIsolationAndEvents(t *testing.T) {
 		}
 	}
 	answer := firstReply.Messages[1]
-	if len(answer.Activity) != 3 || len(answer.Citations) != 1 || len(answer.Artifacts) != 1 {
+	if len(answer.Activity) != 1 || len(answer.Citations) != 1 || len(answer.Artifacts) != 1 {
 		t.Fatalf("Потеря данных ответа: %+v", answer)
 	}
 	service.Close()

@@ -186,12 +186,21 @@ def parse_answer(text: str, sources: list[dict]) -> dict:
 
     events = payload.get("events")
     blocks = verified_blocks(payload.get("blocks"), checked)
+    follow_up = payload.get("follow_up")
 
     return {
         "status": value.status,
         "answer": value.answer,
         "citations": checked,
         "malformed_citations": malformed,
+        **(
+            {"follow_up": follow_up.strip()}
+            if value.status == "partial"
+            and isinstance(follow_up, str)
+            and 5 <= len(follow_up.strip()) <= 240
+            and follow_up.strip().endswith("?")
+            else {}
+        ),
         **({"blocks": blocks} if blocks else {}),
         **(
             {"events": calendar_events(events, checked)}

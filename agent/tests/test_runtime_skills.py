@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from agent import composition
 from agent.app import app
-from agent.application import context
 from agent.application.skills import select_skills
 from agent.config import SKILLS_DIRECTORY
 from agent.domain.sources import SearchResult
@@ -20,6 +19,8 @@ _SOURCE: SearchResult = {"url": "https://example.org/rules", "title": "Прав�
     ("question", "expected"),
     [
         ("Где библиотека НГУ?", ()),
+        ("Какие лучшие университеты Азии?", ("ranking",)),
+        ("Лучшие команды Европы по баскетболу", ()),
         ("Сравни НГУ с НГТУ и составь план действий", ("plan", "comparison")),
         ("Где в НГУ получить справку?", ("office",)),
         ("Когда заканчивается приём в НГУ?", ("calendar",)),
@@ -93,6 +94,11 @@ def test_attachments_activate_skill_but_cannot_choose_other_skills(monkeypatch):
             )
         }
 
+    monkeypatch.setattr(
+        composition,
+        "dialogue_reply",
+        lambda question, *_args, **_kwargs: {"search_question": question},
+    )
     monkeypatch.setattr(composition, "ask", complete)
 
     result = composition.answer_from_search(
@@ -111,15 +117,29 @@ def test_http_followup_selects_skills_from_resolved_turn(monkeypatch):
     monkeypatch.setenv("WEB_RECOVERY_SEARCH", "false")
     monkeypatch.setenv("WEB_ANSWERS_ENABLED", "true")
 
-    def resolve(prompt, **_options):
-        request = json.loads(prompt)
+    def complete(prompt, *, system_prompt, **options):
+        if options.get("tools"):
+            assert options["history"][0] == {
+                "role": "user",
+                "content": "Сравни сроки подачи НГУ и НГТУ.",
+            }
+            assert prompt == "А если в магистратуру?"
 
-        assert request["history"][0]["text"] == "Сравни сроки подачи НГУ и НГТУ."
-        assert request["question"] == "А если в магистратуру?"
+            return {
+                "answer": "",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "web_search",
+                            "arguments": json.dumps(
+                                {"question": "Сравни сроки подачи НГУ и НГТУ в магистратуру"}
+                            ),
+                        },
+                    }
+                ],
+            }
 
-        return {"answer": json.dumps({"question": "Сравни сроки подачи НГУ и НГТУ в магистратуру"})}
-
-    def complete(_prompt, *, system_prompt, **_options):
         assert "# Сравнение" in system_prompt
         assert "# Календарь дедлайнов" in system_prompt
         assert "# Расчёт" not in system_prompt
@@ -136,7 +156,6 @@ def test_http_followup_selects_skills_from_resolved_turn(monkeypatch):
             )
         }
 
-    monkeypatch.setattr(context, "ask", resolve)
     monkeypatch.setattr(composition, "ask", complete)
     monkeypatch.setattr(composition, "make_searcher", lambda **_: lambda _question: [_SOURCE])
 

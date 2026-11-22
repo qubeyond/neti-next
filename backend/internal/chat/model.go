@@ -50,10 +50,24 @@ type Artifact struct {
 	Text  string `json:"text,omitempty"`
 }
 
+type ActivitySource struct {
+	URL     string `json:"url"`
+	Title   string `json:"title"`
+	Excerpt string `json:"excerpt"`
+}
+
 type Activity struct {
-	Kind    string `json:"kind"`
-	Label   string `json:"label"`
-	Elapsed int64  `json:"elapsedMs"`
+	ID       string           `json:"id,omitempty"`
+	Kind     string           `json:"kind"`
+	Label    string           `json:"label"`
+	Elapsed  int64            `json:"elapsedMs"`
+	Duration *int             `json:"durationMs,omitempty"`
+	State    string           `json:"state,omitempty"`
+	Count    *int             `json:"count,omitempty"`
+	Provider string           `json:"provider,omitempty"`
+	Domains  []string         `json:"domains,omitempty"`
+	Skills   []string         `json:"skills,omitempty"`
+	Sources  []ActivitySource `json:"sources,omitempty"`
 }
 
 type Message struct {

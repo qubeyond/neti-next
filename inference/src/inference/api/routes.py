@@ -14,7 +14,14 @@ from prometheus_client import CONTENT_TYPE_LATEST
 from starlette.concurrency import run_in_threadpool
 
 from inference.api.problems import responses
-from inference.api.schemas import ChatRequest, Completion, MediaRequest, Recognition
+from inference.api.schemas import (
+    ChatRequest,
+    Completion,
+    Decision,
+    DecisionRequest,
+    MediaRequest,
+    Recognition,
+)
 from inference.application.operations import Operations
 from inference.runtime.execution import Timed
 from inference.runtime.telemetry import DISCONNECTED
@@ -62,7 +69,9 @@ def create_router(operations: Operations, token: str) -> APIRouter:
         return {"status": "ok"}
 
     @router.get(
-        "/inference/v1/capabilities", dependencies=[Depends(authorize)], responses=responses(401)
+        "/inference/v1/capabilities",
+        dependencies=[Depends(authorize)],
+        responses=responses(401),
     )
     def capabilities() -> dict:
         return asdict(operations.capabilities())
@@ -86,7 +95,18 @@ def create_router(operations: Operations, token: str) -> APIRouter:
         return await run_operation(request, lambda: operations.generate(payload.to_domain()))
 
     @router.post(
-        "/inference/v1/transcribe", dependencies=[Depends(authorize)], response_model=Recognition
+        "/inference/v1/decide",
+        dependencies=[Depends(authorize)],
+        response_model=Decision,
+        responses=operation_errors,
+    )
+    async def decide(request: Request, payload: DecisionRequest) -> dict:
+        return await run_operation(request, lambda: operations.decide(payload.to_domain()))
+
+    @router.post(
+        "/inference/v1/transcribe",
+        dependencies=[Depends(authorize)],
+        response_model=Recognition,
     )
     async def speech(request: Request, media: MediaRequest) -> dict:
         return await run_operation(request, lambda: operations.transcribe(media.data, media.mime))

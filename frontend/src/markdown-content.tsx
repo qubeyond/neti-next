@@ -1,41 +1,109 @@
-import { memo, useLayoutEffect, useRef } from 'react'
-import Markdown from 'react-markdown'
+import { createContext, memo, useContext, useLayoutEffect, useMemo, useRef } from 'react'
+import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { safeURL } from './api'
+import { CitationLink, type CitationReference } from './citations'
 
-export default memo(function MarkdownContent({ text, sourceIDs, animate, onTyping }: {
+const citationMarker = /〔([1-9][0-9]{0,2})〕|\[([1-9][0-9]{0,2})\](?![([])/g
+const marker = citationMarker.source
+const citationCluster = new RegExp(`(?:${marker})(?:[ \\t]*(?:[,;][ \\t]*)?(?:${marker}))*`, 'g')
+const citationAnchors = createContext<ReadonlyMap<string, CitationReference>>(new Map())
+
+const markdownComponents: Components = {
+  a: function MarkdownLink({ href, children }) {
+    const anchors = useContext(citationAnchors)
+    const citation = href?.startsWith('#') ? anchors.get(href.slice(1)) : undefined
+    if (citation) return <CitationLink reference={citation}/>
+    const target = safeURL(href)
+    return target ? <a href={target} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span>
+  },
+  img: ({ src, alt }) => {
+    const target = safeURL(src)
+    return target ? <a href={target} target="_blank" rel="noreferrer">{alt || 'Открыть изображение'}</a> : <span>{alt}</span>
+  },
+  table: ({ children }) => <div className="table-scroll"><table>{children}</table></div>,
+}
+
+function renderCitations(text: string, references?: ReadonlyMap<number, CitationReference>) {
+  const anchors = new Map<string, CitationReference>()
+  let markdown = references?.size ? text.replace(citationCluster, (cluster) => {
+    const seen = new Set<number>()
+    const links: string[] = []
+    for (const [original, numbered, legacy] of cluster.matchAll(citationMarker)) {
+      const ref = Number(numbered ?? legacy)
+      const citation = references.get(ref)
+      if (!citation) {
+        links.push(original)
+      } else if (!seen.has(citation.number)) {
+        seen.add(citation.number)
+        const anchor = citation.id + '-ref-' + ref
+        anchors.set(anchor, citation)
+        links.push(`[〔${citation.number}〕](#${anchor})`)
+      }
+    }
+    return links.join(' ')
+  }) : text
+  if (!anchors.size && references?.size) {
+    const links = new Map<number, string>()
+    for (const citation of references.values()) {
+      if (links.has(citation.number)) continue
+      const anchor = citation.id + '-source'
+      anchors.set(anchor, citation)
+      links.set(citation.number, `[〔${citation.number}〕](#${anchor})`)
+    }
+    markdown += '\n\n' + [...links.values()].join(' ')
+  }
+  return { markdown, anchors }
+}
+
+type TypingPart = { length: number; reveal: (count: number) => void }
+
+function typingParts(root: HTMLElement) {
+  const parts: TypingPart[] = []
+  const segmenter = new Intl.Segmenter('ru', { granularity: 'grapheme' })
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (node instanceof HTMLAnchorElement) return NodeFilter.FILTER_ACCEPT
+      if (node instanceof Text && node.data.trim() && !node.parentElement?.closest('a')) return NodeFilter.FILTER_ACCEPT
+      return NodeFilter.FILTER_SKIP
+    },
+  })
+
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node instanceof HTMLAnchorElement) {
+      const link = node
+      link.setAttribute('data-typing-pending', '')
+      parts.push({ length: 1, reveal: () => link.removeAttribute('data-typing-pending') })
+    } else if (node instanceof Text) {
+      const text = node
+      const full = text.data
+      const ends = Array.from(segmenter.segment(full), ({ index, segment }) => index + segment.length)
+      text.data = ''
+      parts.push({ length: ends.length, reveal: (count) => {
+        text.data = full.slice(0, ends[count - 1])
+      } })
+    }
+  }
+  return parts
+}
+
+export default memo(function MarkdownContent({ text, references, animate, onTyping }: {
   text: string
-  sourceIDs?: ReadonlyMap<number, string>
+  references?: ReadonlyMap<number, CitationReference>
   animate?: boolean
   onTyping?: (active: boolean) => void
 }) {
-  const withCitations = sourceIDs?.size
-    ? text.replace(/〔([1-9][0-9]{0,2})〕/g, (marker: string, ref: string) => {
-      const id = sourceIDs.get(Number(ref))
-      return id ? `[〔${ref}〕](#${id})` : marker
-    })
-    : text
-  const sourceAnchors = new Set(sourceIDs?.values())
+  const { markdown, anchors } = useMemo(() => renderCitations(text, references), [text, references])
   const content = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const root = content.current
     const preference = matchMedia('(prefers-reduced-motion: reduce)')
     if (!root || !animate || preference.matches) return
 
-    const nodes: { node: Text; full: string; ends: number[] }[] = []
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    const segmenter = new Intl.Segmenter('ru', { granularity: 'grapheme' })
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const value = node as Text
-      if (!value.data.trim()) continue
-      const full = value.data
-      const ends = Array.from(segmenter.segment(full), ({ index, segment }) => index + segment.length)
-      nodes.push({ node: value, full, ends })
-      value.data = ''
-    }
-    if (!nodes.length) return
-    const total = nodes.reduce((length, item) => length + item.ends.length, 0)
-    const delay = Math.max(8, Math.min(27, 6800 / total))
+    const parts = typingParts(root)
+    if (!parts.length) return
+    const total = parts.reduce((length, part) => length + part.length, 0)
+    const delay = Math.min(11, 2000 / total)
     let index = 0
     let printed = 0
     let request = 0
@@ -46,27 +114,25 @@ export default memo(function MarkdownContent({ text, sourceIDs, animate, onTypin
 
     function finish() {
       cancelAnimationFrame(request)
-      for (const item of nodes) item.node.data = item.full
+      for (const part of parts) part.reveal(part.length)
       root?.removeAttribute('data-typing')
       root?.removeAttribute('aria-live')
       onTyping?.(false)
     }
 
     function frame(now: number) {
-      if (started === 0) {
+      if (!started) {
         started = now
         onTyping?.(true)
       }
       const count = Math.min(total, Math.floor((now - started) / delay) + 1)
-      while (index < nodes.length) {
-        const item = nodes[index]!
-        const length = count - printed
-        if (length < 1) break
-        const visible = Math.min(length, item.ends.length)
-        const next = item.full.slice(0, item.ends[visible - 1])
-        if (item.node.data !== next) item.node.data = next
-        if (visible < item.ends.length) break
-        printed += item.ends.length
+      while (index < parts.length) {
+        const part = parts[index]!
+        const visible = Math.min(count - printed, part.length)
+        if (visible < 1) break
+        part.reveal(visible)
+        if (visible < part.length) break
+        printed += part.length
         index++
       }
       if (count === total) finish()
@@ -78,28 +144,11 @@ export default memo(function MarkdownContent({ text, sourceIDs, animate, onTypin
       preference.removeEventListener('change', finish)
       finish()
     }
-  }, [withCitations, animate, onTyping])
+  }, [markdown, animate, onTyping])
 
   return <div ref={content} className="markdown-rendered">
-    <Markdown skipHtml remarkPlugins={[remarkGfm]}     components={{
-      a: ({ href, children }) => {
-        const id = href?.startsWith('#') ? href.slice(1) : ''
-        if (sourceAnchors.has(id)) return <a href={href} className="inline-citation" onClick={(event) => {
-          const evidence = document.getElementById(id)
-          if (!(evidence instanceof HTMLDetailsElement)) return
-          event.preventDefault()
-          evidence.open = true
-          evidence.querySelector('summary')?.focus()
-          evidence.scrollIntoView({ block: 'nearest' })
-        }}>{children}</a>
-        const target = safeURL(href)
-        return target ? <a href={target} target="_blank" rel="noreferrer">{children}</a> : <span>{children}</span>
-      },
-      img: ({ src, alt }) => {
-        const target = safeURL(src)
-        return target ? <a href={target} target="_blank" rel="noreferrer">{alt || 'Открыть изображение'}</a> : <span>{alt}</span>
-      },
-      table: ({ children }) => <div className="table-scroll"><table>{children}</table></div>,
-    }}>{withCitations}</Markdown>
+    <citationAnchors.Provider value={anchors}>
+      <Markdown skipHtml remarkPlugins={[remarkGfm]} components={markdownComponents}>{markdown}</Markdown>
+    </citationAnchors.Provider>
   </div>
 })

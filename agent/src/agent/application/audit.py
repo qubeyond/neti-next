@@ -1,6 +1,7 @@
 """Проверяет, что выводы и действия действительно поддержаны доказательствами."""
 
 import json
+import re
 from collections.abc import Callable
 
 from agent.domain.errors import AgentError
@@ -9,6 +10,11 @@ from agent.providers.inference import ask
 from agent.runtime import phase
 
 Verification = Callable[[str, dict], tuple[bool, dict | None]]
+
+_ADMISSION_DATES = re.compile(
+    r"\b(?:до какой даты|когда|срок\w*|дедлайн\w*)\b.*\b(?:документ\w*|прием\w*)\b", re.I
+)
+_CAMPAIGN = re.compile(r"\b20\d{2}\b")
 
 
 def audit(
@@ -65,11 +71,19 @@ def verify_answer(verify: Verification | None, question: str, result: dict) -> d
     if verdict:
         return {**result, **record}
 
+    message = "Найденные источники не позволяют уверенно подтвердить ответ на этот вопрос."
+
+    if _ADMISSION_DATES.search(question.replace("ё", "е")) and (year := _CAMPAIGN.search(question)):
+        message = (
+            f"Не удалось подтвердить срок приёма документов для кампании {year[0]} года. "
+            "Нужны правила приёма вуза за этот год и для указанной категории."
+        )
+
     return {
         **result,
         **record,
         "status": "unverified",
-        "answer": "Найденные источники не позволяют уверенно подтвердить ответ на этот вопрос.",
+        "answer": message,
         "citations": [],
         "blocks": [],
         "events": [],

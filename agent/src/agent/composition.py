@@ -5,6 +5,7 @@ from functools import partial
 
 from agent.application.audit import Verification, audit, verify_answer
 from agent.application.context import Turn, resolve
+from agent.application.dialogue import dialogue_reply
 from agent.application.generation import (
     answer_from_search as generate_answer,
 )
@@ -17,15 +18,17 @@ from agent.config import (
     load_settings,
     optional,
     positive_int,
+    product_prompt,
     required,
     search_limit,
 )
+from agent.domain.conversation import conversational_reply, is_casual_reaction
 from agent.domain.grounding import check_answer, is_truncated
 from agent.domain.query import information_question, reference_text
 from agent.domain.sources import SearchResult
 from agent.providers.document_cache import cached_document
 from agent.providers.firecrawl import read_document
-from agent.providers.inference import ask
+from agent.providers.inference import ask, decide
 from agent.providers.query_rewrite import rewrite_query
 from agent.providers.search import make_searcher
 from agent.runtime import DEADLINE, REQUEST_ID, deadline, phase, request_id
@@ -50,8 +53,11 @@ def answer_from_search(
         question,
         results,
         complete=partial(ask, settings=settings),
-        system_prompt=lambda: " ".join(
-            required(settings, name) for name in ("WEB_SYSTEM_PROMPT", "WEB_ANSWER_FORMAT_PROMPT")
+        system_prompt=lambda: product_prompt(
+            " ".join(
+                required(settings, name)
+                for name in ("WEB_SYSTEM_PROMPT", "WEB_ANSWER_FORMAT_PROMPT")
+            )
         ),
         select=partial(
             select_skills,
@@ -82,7 +88,9 @@ def _verifier(settings: dict[str, str]) -> Verification | None:
     )
 
 
-def _make_service(settings: dict[str, str], attachment_text: str = "") -> AnswerService:
+def _make_service(
+    settings: dict[str, str], attachment_text: str = "", *, discovery: bool = False
+) -> AnswerService:
     read = flag(settings, "WEB_RECOVERY_READ") and optional(settings, "FIRECRAWL_API_KEY")
     search = flag(settings, "WEB_RECOVERY_SEARCH")
     reader = partial(read_document, settings=settings)
@@ -100,6 +108,8 @@ def _make_service(settings: dict[str, str], attachment_text: str = "") -> Answer
         cached = partial(cache, read=None)
         reader = partial(cache, read=reader)
 
+    discovery_prompt = required(settings, "DISCOVERY_ANSWER_PROMPT") if discovery else ""
+
     return AnswerService(
         verify=_verifier(settings),
         search_provider=required(settings, "SEARCH_PROVIDER"),
@@ -110,13 +120,16 @@ def _make_service(settings: dict[str, str], attachment_text: str = "") -> Answer
             attachment_text=attachment_text,
             settings=settings,
             response_format={"type": "json_object"},
+            reasoning_enabled=False if discovery else None,
+            prompt_suffix=discovery_prompt,
         ),
         regenerate=partial(
             answer_from_search,
             attachment_text=attachment_text,
             settings=settings,
             response_format={"type": "json_object"},
-            reasoning_enabled=flag(settings, "WEB_RECOVERY_REASONING"),
+            reasoning_enabled=not discovery and flag(settings, "WEB_RECOVERY_REASONING"),
+            prompt_suffix=discovery_prompt,
         ),
         repair=partial(
             answer_from_search,
@@ -124,7 +137,15 @@ def _make_service(settings: dict[str, str], attachment_text: str = "") -> Answer
             settings=settings,
             response_format={"type": "json_object"},
             reasoning_enabled=False,
-            prompt_suffix=" Дай короткий ответ и верни только объект JSON.",
+            prompt_suffix=(
+                f"{discovery_prompt}\n\n"
+                "Сначала выбери один короткий непрерывный фрагмент с полезным фактом, "
+                "которые можешь скопировать дословно. Дай короткий ответ только по этим "
+                "цитатам. Сохраняй условия и ограничения. Если подтверждается только часть, "
+                "верни partial, даже если знаешь только один полезный факт, и добавь один "
+                "вопрос в follow_up. Если речь о поступлении после бакалавриата, не переноси "
+                "экзамены и правила первого курса на следующий уровень. Верни только объект JSON."
+            ),
         ),
         cached=cached,
         read=reader if read else None,
@@ -225,6 +246,17 @@ def _answer_turn(
             "citations": [],
         }
 
+    if image_source is None and not (
+        attachment_text or quoted_text or is_casual_reaction(question)
+    ):
+        if reply := conversational_reply(question):
+            status, text = reply
+
+            with phase("resolve_context") as trace:
+                trace["decision"] = "local_reply"
+
+            return {"status": status, "answer": text, "citations": []}
+
     if image_source is not None:
         return _answer_image(question, image_source, model=model, settings=settings)
 
@@ -233,18 +265,34 @@ def _answer_turn(
     )
 
     with phase("resolve_context") as trace:
-        question, clarification = resolve(
-            question,
-            history or [],
-            prompt=required(settings, "TURN_CONTEXT_PROMPT"),
-            budget=positive_int(settings, "AGENT_CONTEXT_MAX_TOKENS"),
-        )
+        question, clarification = resolve(question, history)
         trace["decision"] = "clarification" if clarification else "ready"
 
     if clarification:
         return {"status": "clarification", "answer": clarification, "citations": []}
 
-    return _make_service(settings, attachment_text).answer(question, model=model)
+    reply = dialogue_reply(
+        question,
+        history,
+        settings,
+        attachment_text=attachment_text,
+        complete=partial(ask, settings=settings),
+        model=model,
+        decide=partial(decide, settings=settings)
+        if flag(settings, "AGENT_DECISION_ROUTING")
+        else None,
+    )
+
+    if search_question := reply.get("search_question"):
+        service = (
+            _make_service(settings, attachment_text, discovery=True)
+            if reply.get("discovery")
+            else _make_service(settings, attachment_text)
+        )
+
+        return service.answer(search_question, model=model)
+
+    return reply
 
 
 def _answer_image(question: str, image_source: dict, *, model: str | None, settings: dict) -> dict:

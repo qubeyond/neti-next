@@ -4,7 +4,15 @@ import base64
 import binascii
 
 from inference.config import Limits
-from inference.domain.entities import Capabilities, Completion, Generation, Operation, Recognition
+from inference.domain.entities import (
+    Capabilities,
+    ChoiceRequest,
+    ChoiceResult,
+    Completion,
+    Generation,
+    Operation,
+    Recognition,
+)
 from inference.domain.errors import InferenceError
 from inference.domain.ports import Provider
 from inference.runtime.execution import Execution, Timed
@@ -33,6 +41,9 @@ class Operations:
             raise InferenceError(422, "Превышен лимит запроса генерации.")
 
         return self.execution.perform(Operation.LLM, lambda: self.provider.generate(request))
+
+    def decide(self, request: ChoiceRequest) -> Timed[ChoiceResult]:
+        return self.execution.perform(Operation.DECISION, lambda: self.provider.decide(request))
 
     def transcribe(self, encoded: str, mime: str) -> Timed[Recognition]:
         if not mime.startswith("audio/"):

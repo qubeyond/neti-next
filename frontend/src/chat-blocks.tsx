@@ -1,23 +1,15 @@
 import { useState } from 'react'
 import { type BlockCell, type ChatBlock } from './api'
 
-function openEvidence(id: string) {
-  const element = document.getElementById(id)
-  if (element instanceof HTMLDetailsElement) {
-    element.open = true
-    element.querySelector('summary')?.focus()
-    element.scrollIntoView({ block: 'nearest' })
-  }
-}
+import { CitationLink, type CitationReference } from './citations'
 
-function Cell({ cell, sources }: { cell: BlockCell | null; sources: ReadonlyMap<number, string> }) {
+function Cell({ cell, sources }: { cell: BlockCell | null; sources: ReadonlyMap<number, CitationReference> }) {
   if (!cell) return <span>Нет данных</span>
-  const id = sources.get(cell.ref)
-  return <>{cell.value}{id && <button className="mini-button inline-citation" type="button"
-    aria-label={`Открыть источник ${cell.ref}`} onClick={() => openEvidence(id)}>〔{cell.ref}〕</button>}</>
+  const reference = sources.get(cell.ref)
+  return <>{cell.value}{reference && <CitationLink reference={reference}/>}</>
 }
 
-export function ChatBlockView({ block, sources }: { block: ChatBlock; sources: ReadonlyMap<number, string> }) {
+export function ChatBlockView({ block, sources }: { block: ChatBlock; sources: ReadonlyMap<number, CitationReference> }) {
   const [filter, setFilter] = useState('')
   return <section className="artifact-card chat-data-block">
     <strong>{block.title}</strong>

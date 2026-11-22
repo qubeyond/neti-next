@@ -1,4 +1,4 @@
-import { XIcon } from '@phosphor-icons/react/dist/icons/X'
+import { PigeonIcon } from './pigeon-icon'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 export function BrandMark({ className = '' }: { className?: string }) {
@@ -28,7 +28,7 @@ export function Modal({ title, onClose, children, className = '' }: { title: str
     <dialog ref={dialog} className={'modal ' + className} aria-label={title} onCancel={(event) => { event.preventDefault(); onClose() }}>
       <header className="modal-header">
         <h2>{title}</h2>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть"><XIcon/></button>
+        <button className="icon-button" type="button" onClick={onClose} aria-label="Закрыть"><PigeonIcon name="close"/></button>
       </header>
       {children}
     </dialog>

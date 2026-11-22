@@ -11,7 +11,19 @@ export type ChatBlock =
   | { kind: 'calculation'; title: string; operator: string; operands: [BlockCell, BlockCell]; result: string }
   | { kind: 'gap'; title: string; note: string }
 
-export type Activity = { kind: string; label: string; elapsedMs: number }
+export type Activity = {
+  id?: string
+  kind: string
+  label: string
+  elapsedMs: number
+  durationMs?: number
+  state?: string
+  provider?: string
+  count?: number
+  domains?: string[]
+  skills?: string[]
+  sources?: { url: string; title: string; excerpt: string }[]
+}
 export type Message = {
   id: string
   role: 'user' | 'assistant'

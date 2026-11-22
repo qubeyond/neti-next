@@ -1,12 +1,14 @@
 """Вызывает текстовую модель через внутренний сервис инференса."""
 
+import json
 from math import isfinite
 from time import perf_counter
 
 from httpx2 import HTTPError, HTTPStatusError, TimeoutException
 
-from agent.config import load_settings, optional, positive_int, required
+from agent.config import load_settings, optional, positive_int, product_prompt, required
 from agent.domain.errors import AgentError
+from agent.domain.ports import ChatMessage
 from agent.providers.http import client
 from agent.runtime import phase, remaining_time, upstream_headers
 
@@ -20,6 +22,8 @@ def ask(
     max_tokens: int | None = None,
     response_format: dict | None = None,
     reasoning_enabled: bool | None = None,
+    history: list[ChatMessage] | None = None,
+    tools: list[dict] | None = None,
     settings: dict[str, str] | None = None,
 ) -> dict:
     question = question.strip()
@@ -44,8 +48,10 @@ def ask(
         "messages": [
             {
                 "role": "system",
-                "content": system_prompt or required(settings, "TEXT_SYSTEM_PROMPT"),
+                "content": system_prompt
+                or product_prompt(required(settings, "TEXT_SYSTEM_PROMPT")),
             },
+            *(history or []),
             {"role": "user", "content": question},
         ],
     }
@@ -53,13 +59,17 @@ def ask(
     if response_format is not None:
         payload["response_format"] = response_format
 
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+
     if reasoning_enabled is not None:
         payload["reasoning"] = {"enabled": reasoning_enabled}
 
     started_at = perf_counter()
 
     with phase("generate", service="inference") as trace:
-        result = _generate(endpoint, headers, payload, timeout)
+        result = _request(endpoint, headers, payload, timeout)
         usage = result.get("usage")
 
         if isinstance(usage, dict):
@@ -93,7 +103,36 @@ def ask(
     }
 
 
-def _generate(endpoint: str, headers: dict, payload: dict, timeout: int) -> dict:
+def decide(question: str, history: list[ChatMessage], *, settings: dict[str, str]) -> str | None:
+    endpoint = required(settings, "INFERENCE_URL").rstrip("/") + "/inference/v1/decide"
+    timeout = positive_int(settings, "AGENT_DECISION_TIMEOUT_SECONDS")
+    headers = upstream_headers()
+
+    if token := optional(settings, "INFERENCE_TOKEN"):
+        headers["Authorization"] = f"Bearer {token}"
+
+    payload = {
+        "state": json.dumps({"current": question, "history": history}, ensure_ascii=False),
+        "instructions": required(settings, "DECISION_ROUTING_PROMPT"),
+        "choices": {
+            "search": "Нужны новые сведения по вузам, обучению или возможностям для студентов.",
+            "reply": "Можно ответить по контексту или продолжить разговор без новых сведений.",
+        },
+    }
+
+    with phase("decision", service="inference") as trace:
+        try:
+            result = _request(endpoint, headers, payload, timeout)
+            choice = result.get("choice")
+        except AgentError:
+            choice = None
+
+        trace["decision"] = choice if choice in ("search", "reply") else "fallback"
+
+    return choice if choice in ("search", "reply") else None
+
+
+def _request(endpoint: str, headers: dict, payload: dict, timeout: int) -> dict:
     try:
         response = client.post(
             endpoint, json=payload, headers=headers, timeout=remaining_time(timeout)

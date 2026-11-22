@@ -8,7 +8,7 @@ from httpx2 import MockTransport, Request, Response
 from openai import DefaultHttpxClient, OpenAI
 
 from inference.config import Settings
-from inference.domain.entities import Generation, Message
+from inference.domain.entities import ChoiceRequest, ChoiceResult, Generation, Message
 from inference.domain.errors import InferenceError
 from inference.providers.routerai import RouterAIProvider
 
@@ -144,3 +144,75 @@ class TestRouterAI(TestCase):
 
         self.assertEqual(error.exception.status_code, 429)
         self.assertEqual(len(hits), 1)
+
+    def test_sdk_round_trips_optional_function_call(self):
+        tool = {
+            "type": "function",
+            "function": {"name": "web_search", "parameters": {"type": "object"}},
+        }
+        call = {
+            "id": "turn-search",
+            "type": "function",
+            "function": {"name": "web_search", "arguments": '{"question":"Адрес НГУ"}'},
+        }
+
+        def handler(request):
+            payload = json.loads(request.content)
+
+            self.assertEqual(payload["tool_choice"], "auto")
+            self.assertEqual(payload["tools"], [tool])
+            self.assertNotIn("response_format", payload)
+
+            return reply(
+                {"choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [call]}}]}
+            )
+
+        with OpenAI(
+            api_key="test-key",
+            max_retries=0,
+            http_client=DefaultHttpxClient(transport=MockTransport(handler)),
+        ) as client:
+            provider = RouterAIProvider(Settings().routerai, client)
+            result = provider.generate(
+                Generation(
+                    [Message("user", "Проверь адрес НГУ")],
+                    max_tokens=80,
+                    tools=[tool],
+                    tool_choice="auto",
+                )
+            )
+
+        self.assertEqual(result.answer, "")
+        self.assertEqual(result.tool_calls, [call])
+
+    def test_decisions_exposes_only_declared_choices(self):
+        choices = {"search": "Нужен поиск", "reply": "Прямой ответ"}
+        returned = iter(("search", "unknown"))
+
+        def handler(request):
+            payload = json.loads(request.content)
+
+            self.assertTrue(request.url.path.endswith("/decisions"))
+
+            self.assertEqual(payload["questions"]["choice"]["criteria"], choices)
+
+            return reply({"answers": {"choice": {"choice": next(returned)}}})
+
+        with OpenAI(
+            api_key="test-key",
+            base_url="https://routerai.test/api/v1",
+            max_retries=0,
+            http_client=DefaultHttpxClient(transport=MockTransport(handler)),
+        ) as client:
+            config = Settings().routerai
+            provider = RouterAIProvider(config, client)
+            request = ChoiceRequest("Ищу стажировку", "Выбери маршрут", choices)
+
+            self.assertEqual(
+                provider.decide(request), ChoiceResult("search", config.decision_model)
+            )
+
+            with self.assertRaises(InferenceError) as incident:
+                provider.decide(request)
+
+        self.assertEqual(incident.exception.status_code, 502)

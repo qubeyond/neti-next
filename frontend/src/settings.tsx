@@ -11,47 +11,6 @@ import { useState, type FormEvent } from 'react'
 import { api, errorText, type Profile, type Theme } from './api'
 import { Avatar, Modal } from './ui'
 
-type AuthPage = 'login' | 'register'
-
-export function AccountDialog({ initial, onClose, onAccount }: { initial: AuthPage; onClose: () => void; onAccount: (profile: Profile) => void }) {
-  const [mode, setMode] = useState(initial)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const register = mode === 'register'
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy) return
-    const form = new FormData(event.currentTarget)
-    setBusy(true)
-    setError('')
-    try {
-      const profile = await api.auth(mode, {
-        email: String(form.get('email')), password: String(form.get('password')),
-        ...(register ? { name: String(form.get('name')) } : {}),
-      })
-      onAccount(profile)
-    } catch (error) {
-      setError(errorText(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return <Modal title={register ? 'Создать профиль' : 'Войти в Пигеон'} onClose={onClose}>
-    <form className="settings-form" onSubmit={(event) => { void submit(event) }}>
-      {register && <><p className="muted">Демо-регистрация доступна без подтверждения почты.</p><label>Как к вам обращаться<input name="name" maxLength={60} autoComplete="nickname" required/></label></>}
-      <label>Почта<input name="email" type="email" maxLength={254} autoComplete="email" required/></label>
-      <label>Пароль<input key={mode} name="password" type="password" minLength={8} maxLength={72} autoComplete={register ? 'new-password' : 'current-password'} required/></label>
-      {error && <p role="alert" className="form-error">{error}</p>}
-      <button type="submit" className="primary-button" disabled={busy}>{busy ? 'Подождите…' : register ? 'Создать профиль' : 'Войти'}</button>
-      <button type="button" className="text-button" disabled={busy} onClick={() => { setMode(register ? 'login' : 'register'); setError('') }}>
-        {register ? 'У меня уже есть профиль' : 'Создать профиль'}
-      </button>
-    </form>
-  </Modal>
-}
-
 type SettingsProps = {
   profile: Profile | null
   theme: Theme
