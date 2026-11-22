@@ -1,6 +1,13 @@
 **
 !pyproject.toml
 !uv.lock
+!.env.example
+!prompts/
+!prompts/*.txt
+!skills/
+!skills/catalog.toml
+!skills/*/
+!skills/*/SKILL.md
 !src/
 !src/agent/
-!src/agent/*.py
+!src/agent/**/*.py

@@ -1,0 +1,12 @@
+services:
+  agent:
+    networks:
+      default:
+      agent_consumers:
+        aliases:
+          - neti-agent
+
+networks:
+  agent_consumers:
+    external: true
+    name: ${AGENT_DOCKER_NETWORK:-neti-agent}

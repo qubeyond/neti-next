@@ -29,25 +29,148 @@ services:
   backend:
     <<: *runtime
     image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/backend:${IMAGE_TAG:-local}
+    volumes:
+      - backend-data:/var/lib/neti:ro
     env_file:
       - path: ${BACKEND_ENV_FILE:-../backend/.env}
         required: false
+      - path: ${BACKEND_SERVICE_ENV_FILE:-./backend.service.env}
+        required: false
+      - path: ${BACKEND_DATABASE_ENV_FILE:-../agent/.private/backend-database.env}
+        required: false
+    environment:
+      BACKEND_DATABASE_DSN: ${BACKEND_DATABASE_DSN:-host=postgres dbname=neti user=neti_backend sslmode=disable connect_timeout=5}
+      INFERENCE_URL: ${INFERENCE_URL:-http://inference:8002}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      default:
+      database:
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null \"http://127.0.0.1:$${BACKEND_PORT:-8000}/api/health\""]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file:
+      - path: ${POSTGRES_ENV_FILE:-../agent/.private/postgres.env}
+        required: false
+    environment:
+      POSTGRES_DB: neti
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    configs:
+      - source: database-bootstrap
+        target: /docker-entrypoint-initdb.d/010-schemas.sh
+    networks:
+      database:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d neti"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   agent:
     <<: *runtime
     image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/agent:${IMAGE_TAG:-local}
+    expose:
+      - "8001"
     env_file:
       - path: ${AGENT_ENV_FILE:-../agent/.env}
         required: false
+      - path: ${AGENT_PROMPTS_FILE:-../agent/prompts.env}
+        required: false
+      - path: ${AGENT_SERVICE_ENV_FILE:-./agent.service.env}
+        required: false
+      - path: ${AGENT_CACHE_ENV_FILE:-../agent/.private/agent-cache.env}
+        required: false
     environment:
-      ROUTERAI_NETWORK_INTERFACE: ""
+      INFERENCE_URL: ${INFERENCE_URL:-http://inference:8002}
+      AGENT_PROMPTS_DIRECTORY: /run/neti/prompts
+      AGENT_CACHE_DSN: ${AGENT_CACHE_DSN:-host=postgres dbname=neti user=agent_cache}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      default:
+      database:
+    volumes:
+      - type: bind
+        source: ${AGENT_PROMPTS_DIR:-../agent/prompts}
+        target: /run/neti/prompts
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8001/agent/health', timeout=2).close()"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  inference:
+    <<: *runtime
+    image: ${IMAGE_PREFIX:-ghcr.io/qubeyond/neti-next}/inference:${IMAGE_TAG:-local}
+    expose:
+      - "8002"
+    env_file:
+      - path: ${INFERENCE_ENV_FILE:-../inference/.env}
+        required: false
+      - path: ${INFERENCE_PROMPTS_FILE:-../inference/prompts.env}
+        required: false
+      - path: ${INFERENCE_SERVICE_ENV_FILE:-./inference.service.env}
+        required: false
+    environment:
+      INFERENCE_PROMPTS_DIRECTORY: /run/neti/prompts
+    volumes:
+      - type: bind
+        source: ${INFERENCE_PROMPTS_DIR:-../inference/prompts}
+        target: /run/neti/prompts
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8002/inference/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  backend-data:
+  postgres-data:
+
+networks:
+  database:
+    internal: true
+
+configs:
+  database-bootstrap:
+    content: |
+      #!/bin/sh
+      (
+        set -eu
+        psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" <<'SQL'
+      \getenv cache_password AGENT_CACHE_PASSWORD
+      \getenv backend_password BACKEND_DATABASE_PASSWORD
+      BEGIN;
+      CREATE ROLE agent_cache LOGIN NOINHERIT PASSWORD :'cache_password';
+      CREATE ROLE neti_backend LOGIN NOINHERIT PASSWORD :'backend_password';
+      REVOKE ALL ON DATABASE neti FROM PUBLIC;
+      REVOKE CONNECT ON DATABASE postgres, template1 FROM PUBLIC;
+      REVOKE ALL ON SCHEMA public FROM PUBLIC;
+      GRANT CONNECT ON DATABASE neti TO agent_cache, neti_backend;
+      CREATE SCHEMA document_cache AUTHORIZATION agent_cache;
+      CREATE SCHEMA backend AUTHORIZATION neti_backend;
+      REVOKE ALL ON SCHEMA document_cache FROM PUBLIC, neti_backend;
+      REVOKE ALL ON SCHEMA backend FROM PUBLIC, agent_cache;
+      ALTER ROLE agent_cache IN DATABASE neti SET search_path = pg_catalog, document_cache;
+      ALTER ROLE neti_backend IN DATABASE neti SET search_path = pg_catalog, backend;
+      ALTER ROLE agent_cache SET statement_timeout = '15s';
+      ALTER ROLE neti_backend SET statement_timeout = '60s';
+      COMMIT;
+      SQL
+      )

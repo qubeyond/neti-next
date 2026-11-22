@@ -1,0 +1,311 @@
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { api, errorText, safeURL, type Citation, type DemoTurn, type Artifact } from './api'
+import MarkdownContent from './markdown-content'
+
+type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; cost?: number }
+type Span = {
+  id: string
+  parent?: string
+  service: string
+  operation: string
+  at_ms: number
+  duration_ms?: number
+  upstream_ms?: number
+  http_status?: number
+  count?: number
+  cache_hit?: boolean
+  outcome?: 'ok' | 'error'
+  decision?: string
+  model?: string
+  provider?: string
+  domains?: string[]
+  active_skills?: string[]
+  usage?: Usage
+}
+type Reply = { status: string; answer: string; citations: Citation[]; artifacts?: Artifact[] }
+type End = { type: 'answer'; answer: Reply; decision?: string; recovery?: string }
+type Event =
+  | ({ type: 'span_start' | 'span_end'; request_id: string } & Span)
+  | (End & { request_id: string })
+  | { type: 'error'; detail: string; request_id: string }
+  | { type: 'heartbeat'; request_id: string }
+
+const services: Record<string, string> = { backend: 'Go API', agent: 'Агент', web: 'Веб', storage: 'PostgreSQL', inference: 'Inference' }
+const operations: Record<string, [string, string]> = {
+  agent_request: ['Запрос к агенту', 'POST /agent/v1/answers/trace'],
+  prepare_media: ['Подготовка вложения', 'prepare'],
+  ocr: ['Распознавание документа', 'POST /inference/v1/ocr'],
+  transcribe: ['Расшифровка аудио', 'POST /inference/v1/transcribe'],
+  resolve_context: ['Условия вопроса', 'resolve'],
+  search: ['Поиск источников', 'search'],
+  cache_lookup: ['Чтение кэша', 'cached_document'],
+  generation: ['Сборка ответа', 'answer_from_search'],
+  select_skills: ['Выбор скилов', 'select_skills'],
+  generate: ['Вызов модели', 'POST /inference/v1/generate'],
+  grounding: ['Проверка цитат', 'check_answer'],
+  repair: ['Повтор генерации', 'repair'],
+  read: ['Чтение документа', 'read_document'],
+  rewrite: ['Уточнение поискового запроса', 'rewrite_query'],
+  backup_search: ['Дополнительный поиск', 'search'],
+  regeneration: ['Ответ по новым источникам', 'answer_from_search'],
+  verify: ['Перепроверка доказательств', 'audit'],
+  evidence_audit: ['Оценка применимости цитат', 'audit'],
+}
+const decisions: Record<string, string> = {
+  answered: 'Подтверждённый ответ', partial: 'Частичный ответ', unverified: 'Подтверждения недостаточно',
+  clarification: 'Запрошено уточнение', ready: 'Вопрос готов к поиску', invalid: 'Некорректный формат ответа модели',
+  supported: 'Проверка пройдена', citations: 'Цитаты или числа не прошли проверку',
+  missing_total: 'Источники не подтверждают общий итог', procedure: 'Источник не подтверждает процедуру',
+  audit: 'Дополнительная проверка не подтвердила ответ',
+  conflicting_login_links: 'Найдены разные адреса входа',
+}
+const recoveries: Record<string, string> = {
+  accepted_retry: 'Использованы новые доказательства', kept_initial: 'Сохранён первоначальный ответ',
+  no_new_evidence: 'Дополнительный шаг не нашёл доказательств', provider_error: 'Дополнительный вызов завершился ошибкой',
+}
+
+const number = Intl.NumberFormat('ru-RU')
+const money = Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 4 })
+const ms = (value: number) => value < 1000 ? `${number.format(value)} мс` : `${(value / 1000).toFixed(2)} с`
+const label = (span: Span) => operations[span.operation]?.[0] ?? span.operation
+
+function ServiceDiagram({ spans }: { spans: Span[] }) {
+  function node(service: string) {
+    const related = spans.filter((span) => span.service === service)
+    const running = related.some((span) => span.outcome === undefined)
+    const errors = related.filter((span) => span.outcome === 'error').length
+    const state = running ? 'running' : errors ? 'error' : related.length ? 'done' : 'idle'
+    return <div className={`trace-node trace-node-${state}`} key={service}>
+      <strong>{services[service]}</strong>
+      <small>{state === 'idle' ? 'Ожидает' : running ? 'В работе' : errors ? `Ошибок: ${errors}` : `Готово · ${related.length}`}</small>
+    </div>
+  }
+  return <div className="trace-diagram" aria-label="Схема движения запроса">
+    {node('backend')}<span className="trace-arrow" aria-hidden="true">→</span>{node('agent')}
+    <span className="trace-arrow" aria-hidden="true">⇄</span>
+    <div className="trace-branches">{['web', 'storage', 'inference'].map(node)}</div>
+  </div>
+}
+
+function SpanInspector({ span, spans }: { span?: Span; spans: Span[] }) {
+  if (!span) return <p className="trace-placeholder">Выберите шаг, чтобы посмотреть вызов и результат.</p>
+  const parent = spans.find((candidate) => candidate.id === span.parent)
+  const rows = [
+    ['Метод', operations[span.operation]?.[1] ?? span.operation],
+    ['Вызван из', parent && label(parent)],
+    ['Начало', ms(span.at_ms)],
+    ['Длительность', span.duration_ms === undefined ? 'В работе' : ms(span.duration_ms)],
+    ['Время внутри инференса', span.upstream_ms !== undefined ? ms(span.upstream_ms) : undefined],
+    ['HTTP', span.http_status],
+    ['Провайдер', span.provider],
+    ['Домены', span.domains?.join(', ')],
+    ['Скилы', span.operation === 'select_skills' && span.outcome ? span.active_skills?.join(', ') || 'Базовый ответ' : undefined],
+    ['Модель', span.model],
+    ['Токены на входе', span.usage?.prompt_tokens],
+    ['Токены на выходе', span.usage?.completion_tokens],
+    ['Токены всего', span.usage?.total_tokens],
+    ['Расход по API', span.usage?.cost !== undefined ? money.format(span.usage.cost) : undefined],
+    ['Результатов или цитат', span.count],
+    ['Кэш', span.cache_hit === undefined ? undefined : span.cache_hit ? 'Попадание' : 'Промах'],
+    ['Решение', span.decision && decisions[span.decision]],
+  ]
+  return <><h3>{label(span)}</h3><dl className="trace-details">{rows.filter(([, value]) => value !== undefined && value !== '').map(([name, value]) =>
+    <div key={name}><dt>{name}</dt><dd>{value}</dd></div>,
+  )}</dl></>
+}
+
+function TraceSteps({ spans, elapsed, selection, select }: { spans: Span[]; elapsed: number; selection: string; select: (id: string) => void }) {
+  const spanByID = new Map(spans.map((span) => [span.id, span]))
+  function depth(span: Span) {
+    let levels = 0
+    let parent = span.parent
+    while (parent && levels < 5) {
+      levels++
+      parent = spanByID.get(parent)?.parent
+    }
+    return levels
+  }
+  const width = Math.max(elapsed, ...spans.map((span) => span.at_ms + (span.duration_ms ?? 0)), 1)
+  return <ol className="trace-steps" aria-label="Вызванные операции">{spans.map((span) => {
+    const duration = span.duration_ms ?? Math.max(0, elapsed - span.at_ms)
+    return <li key={span.id}>
+      <button type="button" className="trace-step" aria-pressed={selection === span.id} onClick={() => select(span.id)}>
+        <span className="trace-step-name" style={{ paddingInlineStart: depth(span) * 12 }}>
+          <span className={`trace-dot ${span.outcome ?? 'running'}`}/><span><strong>{label(span)}</strong><small>{services[span.service]}</small></span>
+        </span>
+        <span className="trace-bar" aria-hidden="true"><span className={span.outcome ?? 'running'} style={{
+          left: `${Math.min(98, span.at_ms / width * 100)}%`,
+          width: `${Math.max(2, duration / width * 100)}%`,
+        }}/></span>
+        <time>{span.duration_ms === undefined ? 'В работе' : ms(duration)}</time>
+      </button>
+    </li>
+  })}</ol>
+}
+
+export default function DemoStudio({ account }: { account: string }) {
+  const [question, setQuestion] = useState('')
+  const [history, setHistory] = useState<DemoTurn[]>([])
+  const [file, setFile] = useState<File | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [photo, setPhoto] = useState('')
+  const photoURL = useRef('')
+  const [spans, setSpans] = useState<Span[]>([])
+  const [selection, setSelection] = useState('')
+  const [answer, setAnswer] = useState<End>()
+  const [requestID, setRequestID] = useState('')
+  const [error, setError] = useState('')
+  const [elapsed, setElapsed] = useState(0)
+  const [running, setRunning] = useState(false)
+  const active = useRef<AbortController | null>(null)
+
+  useEffect(() => () => {
+    active.current?.abort()
+    if (photoURL.current) URL.revokeObjectURL(photoURL.current)
+  }, [])
+  useEffect(() => {
+    if (!running) return
+    const started = performance.now()
+    const timer = window.setInterval(() => setElapsed(Math.round(performance.now() - started)), 100)
+    return () => window.clearInterval(timer)
+  }, [running])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (active.current || (!question.trim() && !file)) return
+    const controller = new AbortController()
+    active.current = controller
+    setSpans([])
+    setSelection('')
+    setAnswer(undefined)
+    setRequestID('')
+    setError('')
+    setElapsed(0)
+    setRunning(true)
+    if (photoURL.current) URL.revokeObjectURL(photoURL.current)
+    photoURL.current = file?.type.startsWith('image/') ? URL.createObjectURL(file) : ''
+    setPhoto(photoURL.current)
+    let terminal = false
+    try {
+      const response = await api.demoRun(question.trim(), history, file, controller.signal)
+      const stream = response.body?.pipeThrough(new TextDecoderStream()).getReader()
+      if (!stream) throw new Error('Empty response')
+      let pending = ''
+      while (!terminal) {
+        const chunk = await stream.read()
+        if (chunk.done) break
+        pending += chunk.value
+        const lines = pending.split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const update = JSON.parse(line) as Event
+          setRequestID(update.request_id)
+          switch (update.type) {
+            case 'span_start':
+              setSpans((previous) => [...previous, update])
+              break
+            case 'span_end':
+              setSpans((previous) => previous.map((span) => span.id === update.id ? { ...span, ...update, at_ms: span.at_ms } : span))
+              break
+            case 'answer': {
+              setAnswer(update)
+              const spoken = update.answer.artifacts?.find((item) => item.title.startsWith('Расшифровка · '))?.text
+              setHistory((previous) => [
+                ...previous,
+                { role: 'user' as const, text: Array.from(question.trim() || spoken || '').slice(0, 800).join('') },
+                { role: 'assistant' as const, text: Array.from(update.answer.answer).slice(0, 800).join('') },
+              ].filter((turn) => turn.text).slice(-6))
+              setQuestion('')
+              setFile(null)
+              if (fileInput.current) fileInput.current.value = ''
+              terminal = true
+              break
+            }
+            case 'error':
+              setError(update.detail)
+              terminal = true
+              break
+          }
+        }
+      }
+      if (!terminal) setError('Поток завершился без результата.')
+    } catch (cause) {
+      if (controller.signal.aborted) setError('Запрос остановлен.')
+      else setError(errorText(cause))
+    } finally {
+      active.current = null
+      setRunning(false)
+    }
+  }
+
+  const calls = spans.filter((span) => span.service === 'inference')
+  const totals = calls.flatMap((span) => span.usage?.total_tokens ?? [])
+  const costs = calls.flatMap((span) => span.usage?.cost ?? [])
+  const total = spans.find((span) => span.id === 'agent')?.duration_ms
+  const metrics = [
+    ['Время', ms(total ?? elapsed)],
+    ['Вызовы модели', String(calls.length)],
+    ['Токены', totals.length ? number.format(totals.reduce((sum, value) => sum + value, 0)) : '—'],
+    ['Расход модели', costs.length ? money.format(costs.reduce((sum, value) => sum + value, 0)) : '—'],
+  ]
+
+  return <main className="demo-studio">
+    <header className="demo-header">
+      <div><a href="#">← Кабинет</a><h1>Трассировка запроса</h1></div>
+      <span>{account}</span>
+    </header>
+    <form className="demo-question" onSubmit={(event) => { void submit(event) }}>
+      <label htmlFor="demo-question">Вопрос о вузах</label>
+      <textarea id="demo-question" maxLength={2000} rows={2} value={question} disabled={running}
+        onChange={(event) => setQuestion(event.target.value)} placeholder="Например, как оформить перевод в НГТУ?" required/>
+      <label>Фото, PDF или аудиофайл
+        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,application/pdf,audio/*" disabled={running}
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}/>
+      </label>
+      {!!history.length && <small>В контексте этого демо: {history.length} реплик</small>}
+      <div><button type="submit" className="soft-button" disabled={running || (!question.trim() && !file)}>Запустить трассировку</button>
+        {!!history.length && <button type="button" className="soft-button" disabled={running} onClick={() => setHistory([])}>Сбросить контекст</button>}
+        {running && <button type="button" className="soft-button" onClick={() => active.current?.abort()}>Остановить</button>}</div>
+    </form>
+    <dl className="trace-metrics">{metrics.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
+    {(totals.length > 0 && totals.length !== calls.length || costs.length > 0 && costs.length !== calls.length) &&
+      <p className="trace-placeholder">Токены и цена показаны только для вызовов, по которым провайдер вернул поля.</p>}
+    <ServiceDiagram spans={spans}/>
+    <div className="trace-content">
+      <section className="trace-panel">
+        <header><h2>Ход запроса</h2>{requestID && <code title={requestID}>{requestID}</code>}</header>
+        {spans.length ? <TraceSteps spans={spans} selection={selection || spans.at(-1)?.id || ''} select={setSelection} elapsed={total ?? elapsed}/> :
+          <p className="trace-placeholder">Первый этап появится после запуска.</p>}
+      </section>
+      <section className="trace-panel">
+        <header><h2>Инспектор шага</h2></header>
+        <SpanInspector spans={spans} span={spans.find((span) => span.id === selection) ?? spans.at(-1)}/>
+      </section>
+    </div>
+    <div aria-live="polite">{error && <p className="trace-error">{error}</p>}</div>
+    {answer && <section className="trace-panel trace-answer">
+      <header><h2>Ответ и доказательства</h2><span>{decisions[answer.answer.status]}</span></header>
+      <div className="markdown"><MarkdownContent text={answer.answer.answer}/></div>
+      {answer.decision && decisions[answer.decision] && <p>{decisions[answer.decision]}</p>}
+      {answer.recovery && recoveries[answer.recovery] && <p>{recoveries[answer.recovery]}</p>}
+      {answer.answer.artifacts?.map((item, index) => item.text && <details className="trace-source" key={index}>
+        <summary>{item.title}</summary><blockquote>{item.text}</blockquote>
+      </details>)}
+      {answer.answer.citations.map(({ quote, url, ref, attachment_id: attachmentID, region }, index) => {
+        const link = safeURL(url)
+        return <div className="trace-source" key={index}>
+          <strong>{ref ? `〔${ref}〕` : `Источник ${index + 1}`}</strong>
+          <blockquote>{quote}</blockquote>
+          {link && <a href={link} target="_blank" rel="noreferrer">Открыть источник</a>}
+          {attachmentID && photo && <figure className="source-photo"><div>
+            <img src={photo} alt="Вложение демо"/>
+            {region && <span className="source-highlight" aria-hidden="true" style={{
+              left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.width * 100}%`, height: `${region.height * 100}%`,
+            }}/>}
+          </div></figure>}
+        </div>
+      })}
+    </section>}
+  </main>
+}

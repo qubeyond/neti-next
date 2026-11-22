@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "dataset": "expanded",
+  "suite": "web",
+  "dataset_sha256": "51cf545d9204c4be5a85153682f02d332946d18dd07feb09c143f37fc3a5e08b",
+  "document_groups": 36,
+  "folds": [
+    [
+      "dorm-nspu-sgugit",
+      "dorm-nsu-sgugit",
+      "nspu-masters-dorm",
+      "nstu-budget",
+      "nsu-certificate",
+      "sgugit-dorm-photo",
+      "sgugit-library",
+      "sgugit-scholarship-commission",
+      "sib-archived-profile",
+      "vki-deadline",
+      "vki-start"
+    ],
+    [
+      "nspu-library-renew-window",
+      "nsu-eduroam-login",
+      "nsu-password-url",
+      "nsu-schedule",
+      "sgugit-paid-contract",
+      "sgups-block-capacity",
+      "sgups-budget-gap",
+      "sgups-dorm-address",
+      "sgups-dorm-difference",
+      "sgups-dorm-total",
+      "sib-access"
+    ],
+    [
+      "nspu-international-dorm",
+      "nspu-leave-form-date",
+      "nspu-library-renew-count",
+      "nspu-master-consent",
+      "nspu-master-docs",
+      "nspu-overall-dorm",
+      "nspu-triple-price-gap",
+      "nsu-library-login",
+      "sgugit-reader-card",
+      "sgups-career-audience",
+      "sib-post"
+    ],
+    [
+      "nspu-branch-amend",
+      "nspu-master-post",
+      "nspu-mfc-dismissal",
+      "nspu-mfc-enrollment-transfer",
+      "nstu-app",
+      "nstu-business-practice-years",
+      "nstu-dorm-2025-personal-date",
+      "nstu-transfer",
+      "sgugit-dorm-rule22",
+      "sgups-career-vacancies",
+      "sib-rules"
+    ],
+    [
+      "nspu-card-office",
+      "nspu-card-price",
+      "nspu-ege",
+      "nspu-internal",
+      "nspu-schedule",
+      "sgugit-address",
+      "sgugit-campus2-addresses",
+      "sgups-accessible-rooms",
+      "sib-distance",
+      "sib-remote-assignment-channels"
+    ]
+  ],
+  "institution_holdouts": {
+    "НГПУ": {
+      "test": [
+        "dorm-nspu-sgugit",
+        "nspu-branch-amend",
+        "nspu-card-office",
+        "nspu-card-price",
+        "nspu-ege",
+        "nspu-internal",
+        "nspu-international-dorm",
+        "nspu-leave-form-date",
+        "nspu-library-renew-count",
+        "nspu-library-renew-window",
+        "nspu-master-consent",
+        "nspu-master-docs",
+        "nspu-master-post",
+        "nspu-masters-dorm",
+        "nspu-mfc-dismissal",
+        "nspu-mfc-enrollment-transfer",
+        "nspu-overall-dorm",
+        "nspu-schedule",
+        "nspu-triple-price-gap"
+      ],
+      "excluded": [
+        "dorm-nsu-sgugit",
+        "nsu-certificate",
+        "sgugit-dorm-photo"
+      ]
+    },
+    "НГПУ (Куйбышевский филиал)": {
+      "test": [
+        "nspu-branch-amend"
+      ],
+      "excluded": []
+    },
+    "НГТУ НЭТИ": {
+      "test": [
+        "nstu-app",
+        "nstu-budget",
+        "nstu-business-practice-years",
+        "nstu-dorm-2025-personal-date",
+        "nstu-transfer"
+      ],
+      "excluded": []
+    },
+    "НГУ": {
+      "test": [
+        "dorm-nsu-sgugit",
+        "nsu-certificate",
+        "nsu-eduroam-login",
+        "nsu-library-login",
+        "nsu-password-url",
+        "nsu-schedule",
+        "vki-deadline",
+        "vki-start"
+      ],
+      "excluded": [
+        "dorm-nspu-sgugit",
+        "nspu-masters-dorm",
+        "sgugit-dorm-photo"
+      ]
+    },
+    "НГУ (ВКИ)": {
+      "test": [
+        "vki-deadline",
+        "vki-start"
+      ],
+      "excluded": []
+    },
+    "СГУГиТ": {
+      "test": [
+        "dorm-nspu-sgugit",
+        "dorm-nsu-sgugit",
+        "sgugit-address",
+        "sgugit-campus2-addresses",
+        "sgugit-dorm-photo",
+        "sgugit-dorm-rule22",
+        "sgugit-library",
+        "sgugit-paid-contract",
+        "sgugit-reader-card",
+        "sgugit-scholarship-commission"
+      ],
+      "excluded": [
+        "nspu-masters-dorm",
+        "nsu-certificate"
+      ]
+    },
+    "СГУПС": {
+      "test": [
+        "sgups-accessible-rooms",
+        "sgups-block-capacity",
+        "sgups-budget-gap",
+        "sgups-career-audience",
+        "sgups-career-vacancies",
+        "sgups-dorm-address",
+        "sgups-dorm-difference",
+        "sgups-dorm-total"
+      ],
+      "excluded": []
+    },
+    "СибГУТИ": {
+      "test": [
+        "sib-access",
+        "sib-archived-profile",
+        "sib-distance",
+        "sib-post",
+        "sib-remote-assignment-channels",
+        "sib-rules"
+      ],
+      "excluded": []
+    }
+  }
+}

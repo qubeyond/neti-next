@@ -1,3 +1,7 @@
 **
 !go.mod
-!*.go
+!go.sum
+!cmd/
+!cmd/**/*.go
+!internal/
+!internal/**/*.go

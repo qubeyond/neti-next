@@ -27,6 +27,30 @@ services:
       context: ../agent
     pull_policy: build
     restart: "no"
+    environment:
+      PYTHONPATH: /app/src
     volumes:
       - ../agent/src/agent:/app/src/agent:ro
-    command: ["uvicorn", "agent.http:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+      - ../agent/skills:/app/skills:ro
+      - ../evals:/app/evals:ro
+      - type: bind
+        source: ${AGENT_PROMPTS_DIR:-../agent/.private/prompts}
+        target: /run/neti/prompts
+        read_only: true
+        bind:
+          create_host_path: false
+    command: ["uvicorn", "agent.app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+
+  inference:
+    image: neti-next-inference:dev
+    restart: "no"
+    volumes:
+      - type: bind
+        source: ${INFERENCE_PROMPTS_DIR:-../inference/.private/prompts}
+        target: /run/neti/prompts
+        read_only: true
+        bind:
+          create_host_path: false
+    build:
+      context: ../inference
+    pull_policy: build
