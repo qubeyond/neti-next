@@ -68,8 +68,49 @@ svg { flex: none; }
 .sidebar-open .sidebar { visibility: visible; }
 .sidebar-brand { display: flex; align-items: center; gap: 9px; margin: 21px 12px 0 20px; white-space: nowrap; }
 .sidebar-brand strong { font-size: 1.18rem; font-weight: 800; letter-spacing: -.045em; }
-.brand-mark { display: grid; flex: none; place-items: center; width: 31px; aspect-ratio: 1; color: var(--on-accent); background: var(--accent); border-radius: 9px; }
-.brand-mark svg { width: 76%; height: 76%; }
+.brand-mark { display: block; flex: none; width: 53px; color: var(--accent); }
+.brand-flight, .brand-flight svg { display: block; width: 100%; }
+.brand-flight svg { overflow: visible; }
+.brand-wing { transform-box: view-box; }
+.brand-wing-left {
+  --wing-fold: -13deg;
+  --wing-open: 5deg;
+  transform-origin: 33px 25px;
+}
+.brand-wing-right {
+  --wing-fold: 13deg;
+  --wing-open: -5deg;
+  transform-origin: 39px 25px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .brand-wing { animation: pigeon-wings-arrive .76s cubic-bezier(.22,.7,.33,1) both; }
+  .brand-flight { animation: pigeon-lands .76s cubic-bezier(.22,.7,.33,1) both; }
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-wing {
+    animation: pigeon-wingbeat 1.12s ease-in-out both;
+  }
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-flight {
+    animation: pigeon-lifts 1.12s ease-in-out both;
+  }
+}
+@keyframes pigeon-wings-arrive {
+  0% { transform: rotate(var(--wing-fold)) scaleX(.62); }
+  52% { transform: rotate(var(--wing-open)) scaleX(1.02); }
+  100% { transform: none; }
+}
+@keyframes pigeon-lands {
+  0% { opacity: 0; transform: translateY(-4px); }
+  33% { opacity: 1; }
+  70% { transform: translateY(.6px); }
+  100% { transform: none; }
+}
+@keyframes pigeon-wingbeat {
+  19%, 58% { transform: rotate(var(--wing-fold)) scaleX(.62) scaleY(1.07); }
+  39%, 81% { transform: rotate(var(--wing-open)) scaleX(1.02); }
+}
+@keyframes pigeon-lifts {
+  19%, 58% { transform: translateY(-2.5px); }
+  39%, 81% { transform: translateY(-.5px); }
+}
 .close-sidebar { margin-left: auto; }
 .icon-button, .mini-button {
   display: inline-grid;
@@ -596,7 +637,6 @@ svg { flex: none; }
 .new-chat:hover:not(:disabled) { background: var(--accent-soft); }
 .tool-button, .send-button, .private-button { border-radius: 11px; }
 .landing-with-mascot .prompt { border-radius: 11px; }
-.shell .brand-mark { border-radius: 9px; }
 .profile-menu-anchor { display: flex; align-items: center; gap: 4px; }
 .profile-summary { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 7px 6px; }
 .profile-summary > span:last-child { display: grid; min-width: 0; }
