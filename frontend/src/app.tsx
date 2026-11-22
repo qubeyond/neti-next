@@ -12,6 +12,7 @@ import { universityPrompts } from './university-prompts'
 import { useWorkspace } from './use-workspace'
 
 const DemoStudio = lazy(() => import('./demo-studio'))
+const TracePreview = import.meta.env.DEV ? lazy(() => import('./trace-preview')) : null
 
 const compactViewport = '(max-width: 760px)'
 
@@ -403,6 +404,7 @@ function WorkspaceApp() {
 
 export function App() {
   const path = location.pathname.replace(/\/+$/, '')
+  if (TracePreview && path === '/trace-preview') return <Suspense fallback={null}><TracePreview/></Suspense>
   if (path === '/login') return <AccountPage mode="login"/>
   if (path === '/register') return <AccountPage mode="register"/>
   return <WorkspaceApp/>
