@@ -794,32 +794,6 @@ button.inline-citation {
   letter-spacing: -.035em;
 }
 
-.demo-question {
-  display: grid;
-  gap: .55rem;
-}
-
-.demo-question label {
-  font-weight: 600;
-}
-
-.demo-question > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-}
-
-.demo-question textarea {
-  width: 100%;
-  padding: .8rem;
-  color: inherit;
-  font: inherit;
-  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-radius: .65rem;
-  background: transparent;
-  resize: vertical;
-}
-
 .trace-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

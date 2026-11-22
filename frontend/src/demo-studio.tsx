@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api, errorText, safeURL, type Citation, type DemoTurn, type Artifact } from './api'
+import { Composer, emptyDraft, type Draft } from './composer'
+import { groupCitations, sourceLocation } from './citations'
 import MarkdownContent from './markdown-content'
+import { PigeonIcon } from './pigeon-icon'
 import { TraceMenu } from './trace-menu'
 import './trace-workspace.css'
 
@@ -177,11 +180,80 @@ export default function DemoStudio({ account, fixture, controls, execute = api.d
   </main>
 }
 
+function TraceResult({ result, requestID, photo }: { result: End; requestID: string; photo: string }) {
+  const { answer, decision, recovery } = result
+  const evidenceNodes = useRef(new Map<Citation, HTMLDetailsElement>())
+  const { references, sources } = groupCitations(requestID, answer.citations ?? [], (citation) => {
+    const details = evidenceNodes.current.get(citation)
+    if (!details) return
+    details.open = true
+    details.querySelector('summary')?.focus()
+  })
+  const attachments = answer.artifacts?.filter((artifact) => artifact.text || safeURL(artifact.url)) ?? []
+  const status = decisions[answer.status] ?? answer.status
+  const note = decision && decisions[decision] !== status ? decisions[decision] : undefined
+  const followup = recovery ? recoveries[recovery] : undefined
+
+  return <section className="trace-panel trace-answer" aria-labelledby="trace-result-title">
+    <header className="trace-result-header">
+      <h2 id="trace-result-title">Ответ и доказательства</h2>
+      <span className="trace-result-status" data-status={answer.status}>{status}</span>
+    </header>
+    <div className={'trace-result-body' + (sources.length || attachments.length ? ' with-evidence' : '')}>
+      <div className="trace-result-text">
+        <div className="markdown"><MarkdownContent text={answer.answer} references={references}/></div>
+        {(note || followup) && <div className="trace-result-notes">{note && <p>{note}</p>}{followup && <p>{followup}</p>}</div>}
+      </div>
+      {(sources.length > 0 || attachments.length > 0) && <div className="trace-evidence">
+        {sources.length > 0 && <section aria-labelledby="trace-sources-title">
+          <h3 id="trace-sources-title">Источники <span>{sources.length}</span></h3>
+          {sources.map(({ id, number, citation }, index) => {
+            const link = sourceLocation(citation)
+            const title = link ? new URL(link).hostname : citation.attachment_id ? 'Вложение' : 'Цитата'
+            const region = citation.region
+            return <details className="trace-source trace-disclosure" key={id} open={index === 0} ref={(node) => {
+              if (node) evidenceNodes.current.set(citation, node)
+              else evidenceNodes.current.delete(citation)
+            }}>
+              <summary><span className="trace-bracket" aria-hidden="true"/><span>〔{number}〕 {title}</span></summary>
+              <blockquote>{citation.quote}</blockquote>
+              {link && <a className="trace-source-link" href={link} target="_blank" rel="noreferrer">
+                Открыть источник <PigeonIcon name="external"/>
+              </a>}
+              {citation.attachment_id && photo && <figure className="source-photo"><div>
+                <img src={photo} alt="Приложенное изображение"/>
+                {region && <span className="source-highlight" aria-hidden="true" style={{
+                  left: region.x * 100 + '%', top: region.y * 100 + '%', width: region.width * 100 + '%', height: region.height * 100 + '%',
+                }}/>}
+              </div></figure>}
+            </details>
+          })}
+        </section>}
+        {attachments.length > 0 && <section aria-labelledby="trace-artifacts-title">
+          <h3 id="trace-artifacts-title">Материалы прогона</h3>
+          {attachments.map((item, index) => {
+            const url = safeURL(item.url)
+            return <details className="trace-source trace-disclosure" key={index}>
+              <summary><span className="trace-bracket" aria-hidden="true"/>{item.title}</summary>
+              {item.text && <blockquote>{item.text}</blockquote>}
+              {url && <a className="trace-source-link" href={url} target="_blank" rel="noreferrer">
+                Открыть материал <PigeonIcon name="external"/>
+              </a>}
+            </details>
+          })}
+        </section>}
+      </div>}
+    </div>
+  </section>
+}
+
+const compactViewport = '(max-width: 760px)'
+
 function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: typeof api.demoRun }) {
-  const [question, setQuestion] = useState(fixture?.question ?? '')
+  const [draft, setDraft] = useState<Draft>(() => ({ ...emptyDraft, text: fixture?.question ?? '' }))
   const [history, setHistory] = useState<DemoTurn[]>([])
-  const [file, setFile] = useState<File | null>(null)
-  const fileInput = useRef<HTMLInputElement>(null)
+  const [compact, setCompact] = useState(() => matchMedia(compactViewport).matches)
+  const input = useRef<HTMLTextAreaElement>(null)
   const [photo, setPhoto] = useState('')
   const photoURL = useRef('')
   const [spans, setSpans] = useState<Span[]>(fixture?.spans ?? [])
@@ -192,8 +264,15 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
   const [error, setError] = useState(fixture?.error ?? '')
   const [elapsed, setElapsed] = useState(fixture?.elapsed ?? 0)
   const [running, setRunning] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const active = useRef<AbortController | null>(null)
 
+  useEffect(() => {
+    const viewport = matchMedia(compactViewport)
+    const update = () => setCompact(viewport.matches)
+    viewport.addEventListener('change', update)
+    return () => viewport.removeEventListener('change', update)
+  }, [])
   useEffect(() => () => {
     active.current?.abort()
     if (photoURL.current) URL.revokeObjectURL(photoURL.current)
@@ -205,9 +284,17 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
     return () => window.clearInterval(timer)
   }, [running])
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
-    if (active.current || (!question.trim() && !file)) return
+  async function transcribe(audio: Blob) {
+    const { text } = fixture ? { text: fixture.question } : await api.transcribe({}, audio)
+    setDraft((current) => ({ ...current, text: [current.text.trimEnd(), text].filter(Boolean).join('\n') }))
+    input.current?.focus()
+  }
+
+  async function submit() {
+    const submitted = draft
+    const question = submitted.text.trim()
+    const file = submitted.files[0] ?? null
+    if (active.current || (!question && !file)) return
     const controller = new AbortController()
     active.current = controller
     setSpans([])
@@ -223,7 +310,7 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
     setPhoto(photoURL.current)
     let terminal = false
     try {
-      const response = await execute(question.trim(), history, file, controller.signal)
+      const response = await execute(question, history, file, controller.signal)
       const stream = response.body?.pipeThrough(new TextDecoderStream()).getReader()
       if (!stream) throw new Error('Empty response')
       let pending = ''
@@ -249,12 +336,13 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
               const spoken = update.answer.artifacts?.find((item) => item.title.startsWith('Расшифровка · '))?.text
               setHistory((previous) => [
                 ...previous,
-                { role: 'user' as const, text: Array.from(question.trim() || spoken || '').slice(0, 800).join('') },
+                { role: 'user' as const, text: Array.from(question || spoken || '').slice(0, 800).join('') },
                 { role: 'assistant' as const, text: Array.from(update.answer.answer).slice(0, 800).join('') },
               ].filter((turn) => turn.text).slice(-6))
-              setQuestion('')
-              setFile(null)
-              if (fileInput.current) fileInput.current.value = ''
+              setDraft((current) => current === submitted ? emptyDraft : {
+                ...current,
+                files: current.files.filter((item) => !submitted.files.includes(item)),
+              })
               terminal = true
               break
             }
@@ -272,6 +360,7 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
     } finally {
       active.current = null
       setRunning(false)
+      setCancelling(false)
     }
   }
 
@@ -294,24 +383,19 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
   const inspected = visible.find((span) => span.id === selection) ?? visible.at(-1)
 
   return <>
-    <form className="demo-question" onSubmit={(event) => { void submit(event) }}>
-      <label htmlFor="demo-question">Вопрос о вузах</label>
-      <textarea id="demo-question" maxLength={2000} rows={2} value={question} disabled={running}
-        onChange={(event) => setQuestion(event.target.value)} placeholder="Например, как оформить перевод в НГТУ?" required={!file}/>
-      <div className="trace-attachment">
-        <button type="button" className="trace-select-trigger" aria-describedby="trace-file-note" disabled={running}
-          onClick={() => fileInput.current?.click()}>
-          <span className="trace-bracket" aria-hidden="true"/> Прикрепить файл
-        </button>
-        <small id="trace-file-note">{file?.name ?? 'Фото, PDF или аудио'}</small>
-        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,application/pdf,audio/*" disabled={running}
-          hidden onChange={(event) => setFile(event.target.files?.[0] ?? null)}/>
+    <section className="trace-composer" aria-label="Запуск трассировки">
+      <Composer draft={draft} update={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+        inputRef={input} disabled={running} pending={running} cancelling={cancelling} compact={compact}
+        attachmentLimit={1} acceptFiles="image/jpeg,image/png,image/webp,application/pdf,audio/*"
+        onSubmit={() => { void submit() }} onTranscribe={transcribe}
+        onCancel={running ? () => { setCancelling(true); active.current?.abort() } : undefined}/>
+      <div className="trace-compose-meta">
+        <small><kbd>Enter</kbd> отправить · <kbd>Shift</kbd> + <kbd>Enter</kbd> новая строка</small>
+        {history.length > 0 && <button type="button" className="soft-button" disabled={running} onClick={() => setHistory([])}>
+          Сбросить контекст ({history.length})
+        </button>}
       </div>
-      {!!history.length && <small>В контексте этого демо: {history.length} реплик</small>}
-      <div><button type="submit" className="soft-button" disabled={running || (!question.trim() && !file)}>Запустить трассировку</button>
-        {!!history.length && <button type="button" className="soft-button" disabled={running} onClick={() => setHistory([])}>Сбросить контекст</button>}
-        {running && <button type="button" className="soft-button" onClick={() => active.current?.abort()}>Остановить</button>}</div>
-    </form>
+    </section>
     <dl className="trace-metrics">{metrics.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
     {(totals.length > 0 && totals.length !== calls.length || costs.length > 0 && costs.length !== calls.length) &&
       <p className="trace-placeholder">Токены и цена показаны только для вызовов, по которым провайдер вернул поля.</p>}
@@ -334,28 +418,6 @@ function TraceSession({ fixture, execute }: { fixture?: TraceSnapshot; execute: 
       </section>
     </div>
     <div aria-live="polite">{error && <p className="trace-error">{error}</p>}</div>
-    {answer && <section className="trace-panel trace-answer">
-      <header><h2>Ответ и доказательства</h2><span>{decisions[answer.answer.status]}</span></header>
-      <div className="markdown"><MarkdownContent text={answer.answer.answer}/></div>
-      {answer.decision && decisions[answer.decision] && <p>{decisions[answer.decision]}</p>}
-      {answer.recovery && recoveries[answer.recovery] && <p>{recoveries[answer.recovery]}</p>}
-      {answer.answer.artifacts?.map((item, index) => item.text && <details className="trace-source trace-disclosure" key={index}>
-        <summary><span className="trace-bracket" aria-hidden="true"/>{item.title}</summary><blockquote>{item.text}</blockquote>
-      </details>)}
-      {(answer.answer.citations ?? []).map(({ quote, url, ref, attachment_id: attachmentID, region }, index) => {
-        const link = safeURL(url)
-        return <div className="trace-source" key={index}>
-          <strong>{ref ? `〔${ref}〕` : `Источник ${index + 1}`}</strong>
-          <blockquote>{quote}</blockquote>
-          {link && <a href={link} target="_blank" rel="noreferrer">Открыть источник</a>}
-          {attachmentID && photo && <figure className="source-photo"><div>
-            <img src={photo} alt="Вложение демо"/>
-            {region && <span className="source-highlight" aria-hidden="true" style={{
-              left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.width * 100}%`, height: `${region.height * 100}%`,
-            }}/>}
-          </div></figure>}
-        </div>
-      })}
-    </section>}
+    {answer && <TraceResult result={answer} requestID={requestID} photo={photo}/>}
   </>
 }

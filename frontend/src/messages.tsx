@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { PigeonIcon } from './pigeon-icon'
 import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
 import { PigeonAvatar } from './pigeon-avatar'
-import { citationReferences } from './citations'
+import { groupCitations } from './citations'
 import { downloadDeadline } from './calendar'
 import { ChatBlockView } from './chat-blocks'
 import { RunActivity } from './run-activity'
@@ -142,7 +142,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
   const assistant = item.role === 'assistant'
 
   const evidence = item.citations
-  const references = useMemo(() => citationReferences(item.id, evidence ?? [], readOnly ? undefined : setSelectedPhoto), [item.id, evidence, readOnly])
+  const references = useMemo(() => groupCitations(item.id, evidence ?? [], readOnly ? undefined : setSelectedPhoto).references, [item.id, evidence, readOnly])
 
   async function copy() {
     try {

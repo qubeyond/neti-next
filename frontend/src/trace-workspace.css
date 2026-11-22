@@ -12,8 +12,6 @@
 }
 
 .trace-header-actions > span { color: var(--muted); font-size: .82rem; }
-.trace-attachment { align-items: center; }
-.trace-attachment small { color: var(--muted); overflow-wrap: anywhere; }
 
 .trace-select { min-width: 0; }
 
@@ -84,3 +82,58 @@
 .trace-disclosure summary::-webkit-details-marker { display: none; }
 .trace-disclosure summary:hover { color: var(--accent-hover); }
 .trace-disclosure blockquote { margin: 5px 0 0 2.5rem; color: var(--muted); }
+
+.trace-compose-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  color: var(--muted);
+}
+.trace-compose-meta kbd {
+  padding: 1px 4px;
+  border: 1px solid var(--stroke);
+  border-radius: 3px;
+  font: inherit;
+  background: var(--paper);
+}
+.trace-compose-meta .soft-button { font-size: .78rem; }
+
+.trace-result-header {
+  padding-bottom: 9px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--stroke);
+}
+.trace-result-header h2 { margin-bottom: 0; }
+.trace-result-status {
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--sage);
+  color: var(--sage-ink);
+  padding: 3px 7px;
+  font-size: .79rem;
+}
+.trace-result-status:is([data-status='partial'], [data-status='unverified']) { background: var(--peach); color: var(--peach-ink); }
+
+.trace-result-body.with-evidence {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+.trace-result-text { min-width: 0; max-width: 72ch; }
+.trace-result-notes { margin-top: 14px; padding-inline-start: 9px; border-inline-start: 2px solid var(--stroke); color: var(--muted); font-size: .84rem; }
+.trace-result-notes p + p { margin-top: 5px; }
+.trace-evidence { min-width: 0; padding-inline-start: 18px; border-inline-start: 1px solid var(--stroke); }
+.trace-evidence > section + section { margin-top: 17px; }
+.trace-evidence h3 { display: flex; gap: 8px; align-items: baseline; margin: 0; font-size: .9rem; }
+.trace-evidence h3 span { color: var(--muted); font-size: .8rem; font-weight: 400; }
+.trace-evidence .trace-disclosure { margin-top: 6px; padding-top: 5px; font-size: .84rem; overflow-wrap: anywhere; }
+.trace-source-link { margin-inline-start: 2.5rem; display: inline-flex; gap: 5px; align-items: center; margin-top: 5px; }
+.trace-evidence .source-photo { margin-top: 7px; }
+
+@media (max-width: 700px) {
+  .trace-result-body.with-evidence { grid-template-columns: 1fr; gap: 15px; }
+  .trace-evidence { padding: 13px 0 0; border: 0; border-top: 1px solid var(--stroke); }
+}

@@ -25,7 +25,7 @@ export function sourceLocation(citation: Citation) {
   return url.href
 }
 
-export function citationReferences(messageID: string, citations: Citation[], openPhoto?: (citation: Citation) => void) {
+export function groupCitations(messageID: string, citations: Citation[], openPhoto?: (citation: Citation) => void) {
   const references = new Map<number, CitationReference>()
   const byEvidence = new Map<string, CitationReference>()
 
@@ -52,7 +52,7 @@ export function citationReferences(messageID: string, citations: Citation[], ope
     const ref = citation.ref ?? (numbered ? undefined : index + 1)
     if (ref != null && !references.has(ref)) references.set(ref, reference)
   }
-  return references
+  return { references, sources: Array.from(byEvidence.values()) }
 }
 
 export function CitationLink({ reference }: { reference: CitationReference }) {
