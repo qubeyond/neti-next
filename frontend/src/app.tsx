@@ -1,13 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { PigeonIcon } from './pigeon-icon'
-import { api, errorText, type FileItem, type Profile, type Session, type Theme } from './api'
+import { api, errorText, type FileItem, type Profile, type Session } from './api'
 import { PigeonVolume } from './pigeon-volume'
 import { Composer, emptyDraft, type Draft } from './composer'
-import { GuestPromotions } from './guest-promotions'
 import { ChatMessage } from './messages'
 import { ProfileMenu } from './profile-menu'
 import { SettingsDialog } from './settings'
-import { AccountPage, LandingPage } from './public-pages'
+import { AccountPage } from './account-page'
 import { BrandMark, Modal } from './ui'
 import { universityPrompts } from './university-prompts'
 import { useWorkspace } from './use-workspace'
@@ -20,8 +19,6 @@ type WorkspaceProps = {
   profile: Profile | null
   guest: boolean
   incognito: boolean
-  theme: Theme
-  onTheme: (theme: Theme) => void
   onGuest: () => void
   onProfile: (profile: Profile | null) => void
   demoEnabled: boolean
@@ -30,7 +27,7 @@ type WorkspaceProps = {
 type StagedUpload = { chat: string; session: Session; files: Map<File, FileItem> }
 type SendAttempt = { id: string; draft: Draft; chat: string }
 
-function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onProfile, demoEnabled }: WorkspaceProps) {
+function Workspace({ profile, guest, incognito, onGuest, onProfile, demoEnabled }: WorkspaceProps) {
   const work = useWorkspace(guest, onProfile, guest && !incognito)
   const [compact, setCompact] = useState(() => matchMedia(compactViewport).matches)
   const [sidebar, setSidebar] = useState(!guest && !compact)
@@ -307,6 +304,12 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onProfi
           </> : <span className="tooltip-anchor"><button type="button" className="icon-button private-button" aria-label="Инкогнито" aria-describedby="incognito-tooltip" disabled={busy} onClick={onGuest}><PigeonIcon name="private"/></button><span className="control-tooltip" id="incognito-tooltip" role="tooltip">Инкогнито</span></span>}
         </div>
       </header>}
+      {!profile && <header className="workspace-bar">
+        <div className="workspace-actions">
+          <button type="button" className="icon-button" aria-label="Настройки" title="Настройки" onClick={() => setSettings(true)}><PigeonIcon name="settings"/></button>
+          <a className="soft-button guest-login" href="/login">Войти</a>
+        </div>
+      </header>}
       <div className={'workspace-stage' + (showChat ? ' chat-stage' : ' landing-stage') + (!incognito ? ' has-mascot' : '') + (!showChat && !incognito ? ' landing-with-mascot' : '')}>
         <div className="thread-view" ref={thread} hidden={!showChat} onScroll={(event) => {
           const node = event.currentTarget
@@ -324,8 +327,8 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onProfi
         </div>
         <div className="composer-dock" ref={dock}>
           {!showChat && <div className="welcome">
-            {incognito ? <h1>Диалог <span>инкогнито</span></h1> : <h1>Вузы <span>Новосибирска</span></h1>}
-            {!incognito && <p>Поступление, учёба и общежития в Новосибирске и других городах.</p>}
+            {incognito ? <h1>Диалог <span>инкогнито</span></h1> : <h1>Агент по вузам</h1>}
+            {!incognito && <p>Помогает с поступлением и учёбой по всей России.</p>}
           </div>}
           {work.notice && <div className="workspace-notice" role="alert"><span>{work.notice}</span><button type="button" className="mini-button" aria-label="Убрать уведомление" onClick={() => work.setNotice('')}><PigeonIcon name="close"/></button></div>}
           <Composer draft={draft} update={updateDraft} inputRef={input} disabled={busy} pending={Boolean(work.waiting)} compact={compact}
@@ -336,12 +339,11 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onProfi
               <PigeonIcon name={icon}/>{label}
             </button>)}
           </div>}
-          {!profile && <GuestPromotions started={showChat}/>}
         </div>
         {!showChat && !incognito && <PigeonVolume/>}
       </div>
     </main>
-    {settings && <SettingsDialog profile={guest ? null : profile} theme={theme} onTheme={onTheme} onProfile={onProfile}
+    {settings && <SettingsDialog profile={guest ? null : profile} onProfile={onProfile}
       onClose={() => setSettings(false)} onClear={async () => { await work.clearChats(); discardStaged(); setDraft(emptyDraft); attempt.current = null }}
       onLogout={logout} onDelete={() => onProfile(null)}/>}
     {deleteTarget && <Modal title="Удалить диалог?" onClose={() => { if (!deleting) setDeleteTarget(null) }}>
@@ -374,7 +376,6 @@ function WorkspaceApp() {
     }).catch(() => {})
     return () => { active = false }
   }, [profile, guestMode])
-  const [guestTheme, setGuestTheme] = useState<Theme>(() => matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
 
   useEffect(() => {
     let alive = true
@@ -385,9 +386,6 @@ function WorkspaceApp() {
   }, [])
 
   const guest = !profile || guestMode
-  const theme = guest ? guestTheme : profile.theme
-  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
-
   const accountChanged = useCallback((next: Profile | null) => {
     setProfile(next)
     setDemoEnabled(false)
@@ -399,7 +397,7 @@ function WorkspaceApp() {
   if (isDemo && demoEnabled && !guest) return <Suspense fallback={<div className="app-loading" role="status">Открываем трассировку…</div>}><DemoStudio account={profile.name}/></Suspense>
   if (isDemo && !guest) return <main className="demo-studio"><a href="#">Вернуться в кабинет</a><p>Экран доступен назначенному демо-аккаунту.</p></main>
 
-  return <Workspace demoEnabled={demoEnabled && !guest} key={(profile?.id ?? 'anonymous') + ':' + guestMode} profile={profile} guest={guest} incognito={guestMode} theme={theme} onTheme={setGuestTheme}
+  return <Workspace demoEnabled={demoEnabled && !guest} key={(profile?.id ?? 'anonymous') + ':' + guestMode} profile={profile} guest={guest} incognito={guestMode}
     onGuest={() => setGuestMode(!guestMode)} onProfile={accountChanged}/>
 }
 
@@ -407,6 +405,5 @@ export function App() {
   const path = location.pathname.replace(/\/+$/, '')
   if (path === '/login') return <AccountPage mode="login"/>
   if (path === '/register') return <AccountPage mode="register"/>
-  if (!path && location.hash !== '#demo') return <LandingPage/>
   return <WorkspaceApp/>
 }

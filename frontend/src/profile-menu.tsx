@@ -65,7 +65,7 @@ export function ProfileMenu({ profile, disabled, onSettings, onLogout }: Props) 
     {detail && <Modal title={detail === 'language' ? 'Язык' : 'О Пигеоне'} onClose={() => setDetail(null)}>
       <div className="settings-form">
         {detail === 'language' ? <p>Язык интерфейса — русский.</p> :
-          <p>Пигеон помогает ответить на вопросы о поступлении, учёбе и общежитиях вузов Новосибирска и других городов.</p>}
+          <p>Пигеон — агент по вузам России. Помогает разобраться с поступлением, учёбой и общежитием и найти подтверждающие источники.</p>}
       </div>
     </Modal>}
   </div>

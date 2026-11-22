@@ -1,5 +1,5 @@
 export const universityPrompts = [
-  { id: 'admission', label: 'Поступление', prompt: 'Какие ИТ-направления есть в НГТУ НЭТИ?', icon: 'admission' },
-  { id: 'housing', label: 'Общежитие', prompt: 'Как первокурснику заселиться в общежитие НГТУ НЭТИ?', icon: 'housing' },
-  { id: 'study', label: 'Учёба', prompt: 'Где первокурснику НГУ смотреть расписание?', icon: 'calendar' },
+  { id: 'admission', label: 'Поступление', prompt: 'Помоги выбрать вуз в России для поступления на ИТ-направление. Что нужно уточнить?', icon: 'admission' },
+  { id: 'housing', label: 'Общежитие', prompt: 'Как первокурснику получить общежитие? Какие данные о вузе тебе нужны?', icon: 'housing' },
+  { id: 'study', label: 'Учёба', prompt: 'Где найти расписание и учебный план моего вуза?', icon: 'calendar' },
 ] as const

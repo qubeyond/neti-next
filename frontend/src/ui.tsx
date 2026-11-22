@@ -4,10 +4,9 @@ import { useEffect, useRef, type ReactNode } from 'react'
 export function BrandMark({ className = '' }: { className?: string }) {
   return (
     <span className={'brand-mark ' + className} aria-hidden="true">
-      <svg viewBox="0 0 32 32" fill="none">
-        <path d="M5 24.5 15.8 6h5.9L11 24.5H5Z" fill="currentColor"/>
-        <path d="m16 24.5 5.7-10.2 5.6 10.2H16Z" fill="currentColor" opacity=".62"/>
-        <path d="M4 27h24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".7"/>
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 10a10 10 0 0 0-9.5-2v14.5a10 10 0 0 1 9.5 2 10 10 0 0 1 9.5-2V8a10 10 0 0 0-9.5 2v14.5"/>
+        <path d="M10 12.5c1.3 0 2.2.24 3 .7m-3 3.2c1.3 0 2.2.24 3 .7m6-3.9c.8-.46 1.7-.7 3-.7" opacity=".7"/>
       </svg>
     </span>
   )

@@ -185,7 +185,7 @@ export function PigeonVolume() {
         }
       }
       projectionContext.putImageData(pixels, 0, 0)
-      ctx.drawImage(projection, 0, 0, width, displayHeight)
+      ctx.drawImage(projection, 0, 0, width, displayHeight - 6)
       element.dataset.ready = 'true'
     }
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PigeonIcon } from './pigeon-icon'
 import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
 import { PigeonAvatar } from './pigeon-avatar'
@@ -7,10 +7,9 @@ import { downloadDeadline } from './calendar'
 import { ChatBlockView } from './chat-blocks'
 import { RunActivity } from './run-activity'
 import { Modal } from './ui'
+import MarkdownContent from './markdown-content'
 
 const answerDate = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' })
-
-const MarkdownContent = lazy(() => import('./markdown-content'))
 
 function AttachedFile({ file, session, chat }: { file: FileItem; session: Session; chat: string }) {
   const [preview, setPreview] = useState('')
@@ -168,7 +167,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
 
   return <article className={'assistant-message' + (mascot ? ' with-mascot' : '') + (working ? ' awaiting-answer' : '')} aria-label="Ответ Пигеона">
     <RunActivity item={item}/>
-    {mascot ? <div className="assistant-mascot"><PigeonAvatar speaking={typing}/></div> : null}
+    {mascot ? <div className="assistant-mascot"><PigeonAvatar speaking={typing} thinking={working}/></div> : null}
     {!working && <div className={'assistant-content' + (item.state !== 'failed' || mascot ? ' speech-bubble' : '') + (animate && item.state === 'complete' ? ' reveal' : '')}>
       <header className="message-heading"><strong>Пигеон</strong></header>
       {item.state === 'failed' && <div className="answer-error">
@@ -177,7 +176,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
       </div>}
       {item.state === 'complete' && <>
         <div className="markdown">
-          <Suspense fallback={<p>Оформляем ответ…</p>}><MarkdownContent text={item.text} references={references} animate={animate} onTyping={setTyping}/></Suspense>
+          <MarkdownContent text={item.text} references={references} animate={animate} onTyping={setTyping}/>
         </div>
         {item.blocks?.map((block, index) => block.kind !== 'gap' && <ChatBlockView key={index} block={block} sources={references}/>)}
         {!!item.artifacts?.length && <div className="artifact-grid">{item.artifacts.map((artifact, index) => <ArtifactCard item={artifact} key={index}/>)}</div>}
