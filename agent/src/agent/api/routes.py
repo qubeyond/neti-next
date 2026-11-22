@@ -108,9 +108,7 @@ def _answer_response(result: dict) -> AnswerResponse:
             suggestions = ["Поступление", "Расписание", "Общежитие"]
         elif "уровень" in wording or "бакалавр" in wording:
             suggestions = ["Бакалавриат", "Магистратура", "Специалитет"]
-        elif "вуз" in wording or "университет" in wording:
-            suggestions = ["НГУ", "НГТУ НЭТИ", "НГПУ"]
-    elif result["status"] == "unverified":
+    elif result["status"] == "unverified" and "blocks" not in result:
         blocks = [
             {
                 "kind": "gap",
@@ -126,7 +124,7 @@ def _answer_response(result: dict) -> AnswerResponse:
             citations=[
                 Citation(
                     url=item["url"],
-                    quote=item["quote"],
+                    quote=item.get("display_quote") or item["quote"],
                     ref=item["ref"] if item.get("ref") in used_refs else None,
                     attachment_id=item.get("attachment_id"),
                 )

@@ -21,7 +21,7 @@ class QuestionRequest(BaseModel):
     question: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
     ]
-    history: list[HistoryTurn] = Field(default_factory=list, max_length=6)
+    history: list[HistoryTurn] = Field(default_factory=list, max_length=16)
     quoted_text: Annotated[str, StringConstraints(max_length=1200)] = ""
     attachment_text: Annotated[str, StringConstraints(max_length=6000)] = ""
     image_source: ImageSource | None = None

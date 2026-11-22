@@ -9,6 +9,10 @@ from agent.application.dialogue import dialogue_reply
 from agent.application.generation import (
     answer_from_search as generate_answer,
 )
+from agent.application.generation import (
+    answer_with_source_ids,
+)
+from agent.application.memory import RECENT_TURNS, summarize_history
 from agent.application.service import AnswerService
 from agent.application.skills import select_skills
 from agent.config import (
@@ -22,13 +26,14 @@ from agent.config import (
     required,
     search_limit,
 )
+from agent.domain.chat_policy import WEB_POLICIES, needs_source_match
 from agent.domain.conversation import conversational_reply, is_casual_reaction
 from agent.domain.grounding import check_answer, is_truncated
 from agent.domain.query import information_question, reference_text
 from agent.domain.sources import SearchResult
 from agent.providers.document_cache import cached_document
 from agent.providers.firecrawl import read_document
-from agent.providers.inference import ask, decide
+from agent.providers.inference import ask, decide, decide_source_match
 from agent.providers.query_rewrite import rewrite_query
 from agent.providers.search import make_searcher
 from agent.runtime import DEADLINE, REQUEST_ID, deadline, phase, request_id
@@ -82,14 +87,23 @@ def _verifier(settings: dict[str, str]) -> Verification | None:
 
     return partial(
         audit,
-        prompt=required(settings, "EVIDENCE_AUDIT_PROMPT"),
+        prompt="\n\n".join(
+            required(settings, name)
+            for name in ("EVIDENCE_AUDIT_PROMPT", "EVIDENCE_REFERENCE_PROMPT")
+        ),
         budget=positive_int(settings, "AGENT_AUDIT_MAX_TOKENS"),
         settings=settings,
     )
 
 
 def _make_service(
-    settings: dict[str, str], attachment_text: str = "", *, discovery: bool = False
+    settings: dict[str, str],
+    attachment_text: str = "",
+    *,
+    discovery: bool = False,
+    chat_context: dict[str, object] | None = None,
+    check_admission_rights: bool = False,
+    web_policy: str = "",
 ) -> AnswerService:
     read = flag(settings, "WEB_RECOVERY_READ") and optional(settings, "FIRECRAWL_API_KEY")
     search = flag(settings, "WEB_RECOVERY_SEARCH")
@@ -110,8 +124,53 @@ def _make_service(
 
     discovery_prompt = required(settings, "DISCOVERY_ANSWER_PROMPT") if discovery else ""
 
+    original = (chat_context or {}).get("user_question")
+    source_check = (
+        partial(decide_source_match, original, settings=settings, chat_context=chat_context)
+        if isinstance(original, str) and needs_source_match(web_policy, original)
+        else None
+    )
+    detailed_web = web_policy in {"admission", "event", "funding"} or source_check is not None
+
     return AnswerService(
         verify=_verifier(settings),
+        original_question=original if isinstance(original, str) else "",
+        decide_source_match=source_check,
+        web_answer=partial(
+            answer_with_source_ids,
+            chat_context=chat_context,
+            select_web_sources=partial(ask, settings=settings, timeout_seconds=10)
+            if web_policy in {"event", "funding", "official_page"}
+            else None,
+            page_only=web_policy == "official_page",
+            review_rights=partial(ask, settings=settings, timeout_seconds=12)
+            if check_admission_rights
+            else None,
+            review_claims=partial(ask, settings=settings, timeout_seconds=8)
+            if detailed_web and not check_admission_rights
+            else None,
+            read=(reader if read else cached) if detailed_web else None,
+            complete=partial(ask, settings=settings),
+            system_prompt=product_prompt(
+                "\n\n".join(
+                    text
+                    for text in (
+                        required(settings, "WEB_SOURCE_ANSWER_PROMPT"),
+                        WEB_POLICIES.get(web_policy, ("", ""))[1],
+                    )
+                    if text
+                )
+            ),
+            select=partial(
+                select_skills,
+                root=SKILLS_DIRECTORY,
+                overrides=PROMPTS_DIRECTORY / "skills",
+                legacy=partial(optional, settings),
+            ),
+            source_limit=positive_int(settings, "WEB_SOURCE_MAX_CHARS"),
+        )
+        if not attachment_text
+        else None,
         search_provider=required(settings, "SEARCH_PROVIDER"),
         backup_provider=optional(settings, "WEB_RECOVERY_PROVIDER") or "",
         search=lambda question: make_searcher(settings=settings)(question),
@@ -140,8 +199,8 @@ def _make_service(
             prompt_suffix=(
                 f"{discovery_prompt}\n\n"
                 "Сначала выбери один короткий непрерывный фрагмент с полезным фактом, "
-                "которые можешь скопировать дословно. Дай короткий ответ только по этим "
-                "цитатам. Сохраняй условия и ограничения. Если подтверждается только часть, "
+                "который можешь скопировать дословно. Дай короткий ответ по доказательству. "
+                "Сохраняй условия и ограничения. Если подтверждается только часть, "
                 "верни partial, даже если знаешь только один полезный факт, и добавь один "
                 "вопрос в follow_up. Если речь о поступлении после бакалавриата, не переноси "
                 "экзамены и правила первого курса на следующий уровень. Верни только объект JSON."
@@ -181,6 +240,7 @@ def answer_with_saved_search(
     runner = replace(
         service,
         search=lambda _: list(results),
+        web_answer=None,
         generate=observe(service.generate),
         repair=observe(service.repair) if service.repair else None,
         regenerate=observe(service.regenerate) if service.regenerate else None,
@@ -271,24 +331,55 @@ def _answer_turn(
     if clarification:
         return {"status": "clarification", "answer": clarification, "citations": []}
 
+    memory = {}
+
+    if len(history) > RECENT_TURNS and not is_casual_reaction(question):
+        memory = summarize_history(
+            history,
+            complete=partial(ask, settings=settings, timeout_seconds=8),
+            model=model,
+        )
+
     reply = dialogue_reply(
         question,
         history,
         settings,
         attachment_text=attachment_text,
+        memory=memory,
+        decide=partial(decide, settings=settings),
+        review_reply=lambda question, recent, draft: decide(
+            question, recent, settings=settings, draft=draft
+        ),
         complete=partial(ask, settings=settings),
         model=model,
-        decide=partial(decide, settings=settings)
-        if flag(settings, "AGENT_DECISION_ROUTING")
-        else None,
     )
 
     if search_question := reply.get("search_question"):
-        service = (
-            _make_service(settings, attachment_text, discovery=True)
-            if reply.get("discovery")
-            else _make_service(settings, attachment_text)
+        subject_context = reply.get("subject_context")
+        recent_user_messages = (
+            [subject_context]
+            if subject_context
+            else [
+                text
+                for turn in history[-RECENT_TURNS:]
+                if turn["role"] == "user" and (text := reference_text(turn["text"]))
+            ]
         )
+        service = _make_service(
+            settings,
+            attachment_text,
+            discovery=bool(reply.get("discovery")),
+            check_admission_rights=bool(reply.get("check_admission_rights")),
+            web_policy=reply.get("web_policy", "search"),
+            chat_context={
+                "user_question": question,
+                "earlier_chat": memory,
+                "recent_user_messages": recent_user_messages,
+            },
+        )
+
+        if additional := reply.get("additional_query"):
+            return service.answer(search_question, model=model, additional_query=additional)
 
         return service.answer(search_question, model=model)
 

@@ -7,6 +7,10 @@ _CAPABILITIES = (
     r"(?:кто ты(?: такой)?|ты (?:вообще )?кто|(?:а )?(?:что|че) (?:ты )?(?:умеешь|можешь)"
     r"|(?:а )?чем (?:ты )?можешь помочь|чем ты занимаешься|расскажи о себе|ты (?:бот|нейросеть))"
 )
+_CAPABILITY_LIST = re.compile(
+    r"(?:перечисли|назови|расскажи) (?:все,? )?(?:что (?:ты )?умеешь|"
+    r"(?:свои )?возможности)"
+)
 _INTRODUCTION = re.compile(rf"(?:{_GREETING}(?:[ ,.!?]+{_CAPABILITIES})?|{_CAPABILITIES})")
 _HOW_ARE_YOU = re.compile(r"(?:ну\s+)?(?:как (?:твои )?дела|как (?:ты|сам|поживаешь))")
 _THANKS = re.compile(r"(?:спасибо(?: большое)?|большое спасибо|благодарю|спс|пасиб(?:о)?)")
@@ -18,9 +22,6 @@ _REACTION = re.compile(
     r"(?:(?:\s+|\s*[,.!?]+\s*)(?:ну\s+)?(?:чел|бро|да ладно|серьезно|ну))?"
 )
 _REACTION_EMOJI = re.compile(r"[😂🤣😅😆🙃🤔😳😬😐😮🫠🙄😭🤦👍👀🤨❤️\s!?.,…]+")
-_PLAYFUL_LABEL = re.compile(
-    r"(?:(?:я|ты)\s+)?(?:грязнульк[аи]|грязнуля|душнила|легенда|шутник)(?:\s+(?:я|ты))?"
-)
 _PRIVATE_ACADEMIC = re.compile(
     r"\b(?:моя оценка|мои оценки|мо[ию] оценк[иу]|мой средний балл|"
     r"расписание лично для меня|статус моего заявления|рассмотрели ли мое заявление)\b"
@@ -28,8 +29,8 @@ _PRIVATE_ACADEMIC = re.compile(
     r"|\b(?:какую оценку|сколько баллов)\b.*\bя (?:получил[аи]?|набрал[аи]?)\b"
 )
 _INTRODUCTION_REPLY = (
-    "Привет! Я Пигеон, помощник по вузам Новосибирска и других городов. "
-    "Помогу разобраться с поступлением, учёбой и общагой. С чего начнём?"
+    "Привет! Я Пигеон. Ищу информацию о вузах Новосибирска и других городов — "
+    "от правил поступления до программ и общежитий."
 )
 
 
@@ -37,7 +38,7 @@ def is_casual_reaction(question: str) -> bool:
     text = " ".join(question.casefold().replace("ё", "е").split()).strip("!?.,…:;\\/—–- ")
     text = re.sub(r"([а-я])\1+", r"\1", text)
 
-    return any(pattern.fullmatch(text) for pattern in (_REACTION, _REACTION_EMOJI, _PLAYFUL_LABEL))
+    return bool(_REACTION.fullmatch(text) or _REACTION_EMOJI.fullmatch(text))
 
 
 def conversational_reply(question: str) -> tuple[str, str] | None:
@@ -47,6 +48,9 @@ def conversational_reply(question: str) -> tuple[str, str] | None:
         r"(?:э+|эм+|мм+|хм+|ну+)", text
     ):
         return "clarification", "Что ты хотел спросить?"
+
+    if _CAPABILITY_LIST.fullmatch(text):
+        return "answered", "Я Пигеон. Ищу информацию о вузах Новосибирска и других городов."
 
     if _INTRODUCTION.fullmatch(text):
         reply = _INTRODUCTION_REPLY

@@ -18,7 +18,7 @@ from agent.config import load_settings, positive_int
 from agent.providers.document_cache import close_document_cache
 from agent.runtime import DEADLINE, REQUEST_ID, deadline, request_id
 
-MAX_BODY_BYTES = 64 * 1024
+MAX_BODY_BYTES = 128 * 1024
 logger = logging.getLogger("uvicorn.error.agent")
 
 

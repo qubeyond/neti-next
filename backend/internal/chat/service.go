@@ -149,7 +149,7 @@ type runJob struct {
 
 func captureRun(who identity.Actor, item *StoredChat, state *State, user, answer Message, userIndex int, permit *limits.Permit) *runJob {
 	return &runJob{permit: permit, who: who, chat: item.ID, id: answer.ID, start: answer.CreatedAt, input: AgentRequest{
-		ChatID: item.ID, History: append([]Message(nil), item.Messages[max(0, userIndex-8):userIndex]...),
+		ChatID: item.ID, History: append([]Message(nil), item.Messages[max(0, userIndex-20):userIndex]...),
 		Message: user, DisplayName: state.DisplayName, Instructions: state.Instructions,
 	}}
 }
