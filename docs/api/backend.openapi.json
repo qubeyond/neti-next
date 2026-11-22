@@ -2102,7 +2102,67 @@
           },
           "elapsedMs": {
             "type": "integer",
+            "minimum": 0,
+            "description": "Смещение начала операции от начала хода."
+          },
+          "id": {
+            "type": "string"
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Продолжительность операции после завершения."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "ok",
+              "error",
+              "interrupted"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
             "minimum": 0
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "excerpt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "title",
+                "excerpt"
+              ]
+            }
           }
         },
         "required": [

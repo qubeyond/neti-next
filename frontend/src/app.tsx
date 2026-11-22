@@ -1,31 +1,18 @@
-import { BuildingsIcon } from '@phosphor-icons/react/dist/icons/Buildings'
-import { CalendarDotsIcon } from '@phosphor-icons/react/dist/icons/CalendarDots'
-import { ChatCircleTextIcon } from '@phosphor-icons/react/dist/icons/ChatCircleText'
-import { DetectiveIcon } from '@phosphor-icons/react/dist/icons/Detective'
-import { GearIcon } from '@phosphor-icons/react/dist/icons/Gear'
-import { GraduationCapIcon } from '@phosphor-icons/react/dist/icons/GraduationCap'
-import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/icons/MagnifyingGlass'
-import { PlusIcon } from '@phosphor-icons/react/dist/icons/Plus'
-import { SidebarSimpleIcon } from '@phosphor-icons/react/dist/icons/SidebarSimple'
-import { TrashIcon } from '@phosphor-icons/react/dist/icons/Trash'
-import { XIcon } from '@phosphor-icons/react/dist/icons/X'
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { PigeonIcon } from './pigeon-icon'
 import { api, errorText, type FileItem, type Profile, type Session, type Theme } from './api'
 import { PigeonVolume } from './pigeon-volume'
 import { Composer, emptyDraft, type Draft } from './composer'
+import { GuestPromotions } from './guest-promotions'
 import { ChatMessage } from './messages'
 import { ProfileMenu } from './profile-menu'
-import { AccountDialog, SettingsDialog } from './settings'
+import { SettingsDialog } from './settings'
+import { AccountPage, LandingPage } from './public-pages'
 import { BrandMark, Modal } from './ui'
+import { universityPrompts } from './university-prompts'
 import { useWorkspace } from './use-workspace'
 
 const DemoStudio = lazy(() => import('./demo-studio'))
-
-const prompts = [
-  { label: 'Поступление', prompt: 'Какие ИТ-направления есть в НГТУ НЭТИ?', Icon: GraduationCapIcon, tone: 'pink' },
-  { label: 'Общежитие', prompt: 'Как первокурснику заселиться в общежитие НГТУ НЭТИ?', Icon: BuildingsIcon, tone: 'peach' },
-  { label: 'Учёба', prompt: 'Где первокурснику НГУ смотреть расписание?', Icon: CalendarDotsIcon, tone: 'blue' },
-]
 
 const compactViewport = '(max-width: 760px)'
 
@@ -36,7 +23,6 @@ type WorkspaceProps = {
   theme: Theme
   onTheme: (theme: Theme) => void
   onGuest: () => void
-  onLogin: () => void
   onProfile: (profile: Profile | null) => void
   demoEnabled: boolean
 }
@@ -44,16 +30,21 @@ type WorkspaceProps = {
 type StagedUpload = { chat: string; session: Session; files: Map<File, FileItem> }
 type SendAttempt = { id: string; draft: Draft; chat: string }
 
-function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin, onProfile, demoEnabled }: WorkspaceProps) {
-  const work = useWorkspace(guest, onProfile)
+function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onProfile, demoEnabled }: WorkspaceProps) {
+  const work = useWorkspace(guest, onProfile, guest && !incognito)
   const [compact, setCompact] = useState(() => matchMedia(compactViewport).matches)
-  const [sidebar, setSidebar] = useState(!compact && !incognito)
+  const [sidebar, setSidebar] = useState(!guest && !compact)
   const [search, setSearch] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
   const [settings, setSettings] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [draft, setDraft] = useState<Draft>(() => {
+    const id = new URLSearchParams(location.search).get('example')
+    const example = universityPrompts.find((item) => item.id === id)
+    return example ? { ...emptyDraft, text: example.prompt } : emptyDraft
+  })
   const [busy, setBusy] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   const [animate, setAnimate] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -62,7 +53,6 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
   const searchInput = useRef<HTMLInputElement>(null)
   const searchToggle = useRef<HTMLButtonElement>(null)
   const thread = useRef<HTMLDivElement>(null)
-  const threadContent = useRef<HTMLDivElement>(null)
   const dock = useRef<HTMLDivElement>(null)
   const composeOrigin = useRef<DOMRect | null>(null)
   const stickToBottom = useRef(true)
@@ -71,10 +61,13 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
   const staged = useRef<StagedUpload | null>(null)
   const attempt = useRef<SendAttempt | null>(null)
   const lastMessage = work.chat?.messages.at(-1)
+  const lastAssistant = work.chat?.messages.filter((item) => item.role === 'assistant').at(-1)
+  const workingMessage = lastMessage?.state === 'working' ? lastMessage : null
   const chatId = work.chat?.id
-  const showChat = Boolean(work.active || busy)
+  const showChat = Boolean(work.active || work.chat || busy)
   const searchTerm = search.trim().toLocaleLowerCase('ru')
   const visibleChats = work.chats.filter(({ title }) => title.toLocaleLowerCase('ru').includes(searchTerm))
+  const archivedIDs = new Set(work.archivedMessages?.map(({ id }) => id))
 
   useEffect(() => {
     const viewport = matchMedia(compactViewport)
@@ -86,18 +79,7 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
   useEffect(() => {
     const node = thread.current
     if (node && stickToBottom.current) node.scrollTop = node.scrollHeight
-  }, [work.chat, draft.quote, draft.files.length])
-
-  useEffect(() => {
-    const content = threadContent.current
-    const viewport = thread.current
-    if (!chatId || !content || !viewport) return
-    const observer = new ResizeObserver(() => {
-      if (stickToBottom.current) viewport.scrollTop = viewport.scrollHeight
-    })
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [chatId])
+  }, [chatId, lastMessage?.id, draft.quote, draft.files.length])
 
   useEffect(() => {
     if (!sidebar || !compact) return
@@ -227,11 +209,17 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
   }
 
   async function cancel(id: string) {
-    if (!work.active || !work.session) return
+    if (!work.active || !work.session || cancelling) return
+    const chat = work.active
+    const session = work.session
+    setCancelling(true)
     try {
-      await api.cancel(work.session, work.active, id)
+      await api.cancel(session, chat, id)
+      await work.loadChat(session, chat)
     } catch (error) {
       work.setNotice(errorText(error))
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -254,11 +242,6 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
     }
   }
 
-  function quote(text: string, question: boolean) {
-    setDraft((old) => ({ ...old, quote: Array.from(text).slice(0, 1200).join(''), text: question && !old.text ? 'Поясни этот фрагмент: ' : old.text }))
-    input.current?.focus()
-  }
-
   async function logout() {
     await api.logout()
     onProfile(null)
@@ -269,22 +252,21 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
     requestAnimationFrame(() => navigationToggle.current?.focus())
   }
 
-  return <div className={'shell' + (sidebar ? ' sidebar-open' : '') + (incognito ? ' shell-private' : '')}>
-    {!incognito && <>
+  return <div className={'shell' + (sidebar ? ' sidebar-open' : '') + (incognito ? ' shell-private' : !profile ? ' shell-guest' : '')}>
+    {profile && !incognito && <>
       <button aria-label="Закрыть боковую панель" className="sidebar-backdrop" type="button" tabIndex={-1} onClick={closeSidebar}/>
       <aside className="sidebar" id="workspace-sidebar" aria-label="Навигация">
         <div className="sidebar-content">
           <div className="sidebar-brand">
-            <BrandMark/>
-            <strong>Пигеон</strong>
+            <a className="workspace-brand" href="/"><BrandMark/><strong>Пигеон</strong></a>
             <button ref={searchToggle} type="button" className="icon-button search-toggle" aria-label="Поиск чатов" title="Поиск чатов" aria-expanded={searchOpen} aria-controls={searchOpen ? 'history-search' : undefined} onClick={() => {
               if (searchOpen) setSearch('')
               else requestAnimationFrame(() => searchInput.current?.focus())
               setSearchOpen(!searchOpen)
-            }}><MagnifyingGlassIcon/></button>
-            <button ref={sidebarClose} type="button" className="icon-button close-sidebar" aria-label="Свернуть панель" title="Свернуть панель" onClick={closeSidebar}><SidebarSimpleIcon/></button>
+            }}><PigeonIcon name="search"/></button>
+            <button ref={sidebarClose} type="button" className="icon-button close-sidebar" aria-label="Свернуть панель" title="Свернуть панель" onClick={closeSidebar}><PigeonIcon name="sidebar"/></button>
           </div>
-          <button type="button" className="new-chat" onClick={() => openChat(null)} disabled={busy}><PlusIcon weight="bold"/> Новый чат</button>
+          <button type="button" className="new-chat" onClick={() => openChat(null)} disabled={busy}><PigeonIcon name="plus"/> Новый чат</button>
           {searchOpen && <label className="history-search" id="history-search"><input ref={searchInput} type="search" value={search} aria-label="Найти чат" placeholder="Найти чат" onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => {
             if (event.key !== 'Escape') return
             event.stopPropagation()
@@ -295,11 +277,11 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
           <div className="history">
             <h2>Диалоги</h2>
             {visibleChats.length ? <nav aria-label="Список диалогов">
-              {visibleChats.map((item) => <div className={'history-row' + (item.id === work.active ? ' selected' : '')} key={item.id}>
-                <button type="button" className="history-item" disabled={busy} aria-current={item.id === work.active ? 'page' : undefined} title={item.title} onClick={() => openChat(item.id)}>
-                  <ChatCircleTextIcon weight="duotone" aria-hidden="true"/><span>{item.title}</span>
+              {visibleChats.map((item) => <div className={'history-row' + (item.id === chatId ? ' selected' : '')} key={item.id}>
+                <button type="button" className="history-item" disabled={busy} aria-current={item.id === chatId ? 'page' : undefined} title={item.title} onClick={() => openChat(item.id)}>
+                  <PigeonIcon name="chat"/><span>{item.title}</span>
                 </button>
-                <button type="button" className="mini-button delete-chat" disabled={busy} aria-label={'Удалить диалог ' + item.title} onClick={() => setDeleteTarget(item.id)}><TrashIcon/></button>
+                <button type="button" className="mini-button delete-chat" disabled={busy} aria-label={'Удалить диалог ' + item.title} onClick={() => setDeleteTarget(item.id)}><PigeonIcon name="trash"/></button>
               </div>)}
             </nav> : <p>{searchTerm ? 'Диалоги не найдены.' : 'Здесь появятся ваши диалоги.'}</p>}
           </div>
@@ -312,42 +294,49 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
       </aside>
     </>}
     <main className="workspace" inert={sidebar && compact}>
-      <header className="workspace-bar">
+      {profile && <header className="workspace-bar">
         <div className="workspace-title">
-          {incognito ? <span className="private-mode-marker" aria-label="Инкогнито" title="Инкогнито"><DetectiveIcon className="private-icon" weight="duotone" aria-hidden="true"/></span> :
-            <button ref={navigationToggle} type="button" className="icon-button" aria-label={sidebar ? 'Свернуть боковую панель' : 'Открыть боковую панель'} aria-expanded={sidebar} aria-controls="workspace-sidebar" onClick={() => setSidebar(!sidebar)}><SidebarSimpleIcon/></button>}
+          {incognito ? <span className="private-mode-marker" aria-label="Инкогнито" title="Инкогнито"><PigeonIcon name="private" className="private-icon"/></span> :
+            <button ref={navigationToggle} type="button" className="icon-button" aria-label={sidebar ? 'Свернуть боковую панель' : 'Открыть боковую панель'} aria-expanded={sidebar} aria-controls="workspace-sidebar" onClick={() => setSidebar(!sidebar)}><PigeonIcon name="sidebar"/></button>}
         </div>
         <div className="workspace-actions">
-          {!profile && <button type="button" className="login-button" onClick={onLogin}>Войти</button>}
           {incognito ? <>
-            {work.active && <button type="button" className="icon-button" aria-label="Новый чат" title="Новый чат" disabled={busy} onClick={() => openChat(null)}><PlusIcon/></button>}
-            <button type="button" className="icon-button" aria-label="Настройки" title="Настройки" onClick={() => setSettings(true)}><GearIcon/></button>
-            <button type="button" className="icon-button" aria-label="Выйти из инкогнито" title="Выйти из инкогнито" disabled={busy} onClick={onGuest}><XIcon/></button>
-          </> : <span className="tooltip-anchor"><button type="button" className="icon-button private-button" aria-label="Инкогнито" aria-describedby="incognito-tooltip" disabled={busy} onClick={onGuest}><DetectiveIcon weight="duotone" aria-hidden="true"/></button><span className="control-tooltip" id="incognito-tooltip" role="tooltip">Инкогнито</span></span>}
+            {work.active && <button type="button" className="icon-button" aria-label="Новый чат" title="Новый чат" disabled={busy} onClick={onGuest}><PigeonIcon name="plus"/></button>}
+            <button type="button" className="icon-button" aria-label="Настройки" title="Настройки" onClick={onGuest}><PigeonIcon name="settings"/></button>
+            <button type="button" className="icon-button" aria-label="Выйти из инкогнито" title="Выйти из инкогнито" disabled={busy} onClick={onGuest}><PigeonIcon name="close"/></button>
+          </> : <span className="tooltip-anchor"><button type="button" className="icon-button private-button" aria-label="Инкогнито" aria-describedby="incognito-tooltip" disabled={busy} onClick={onGuest}><PigeonIcon name="private"/></button><span className="control-tooltip" id="incognito-tooltip" role="tooltip">Инкогнито</span></span>}
         </div>
-      </header>
+      </header>}
       <div className={'workspace-stage' + (showChat ? ' chat-stage' : ' landing-stage') + (!incognito ? ' has-mascot' : '') + (!showChat && !incognito ? ' landing-with-mascot' : '')}>
         <div className="thread-view" ref={thread} hidden={!showChat} onScroll={(event) => {
           const node = event.currentTarget
           stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96
         }}>
-          {work.active && work.chat ? <div className="thread-content" ref={threadContent} role="log" aria-label="История диалога" aria-live="polite">
-            {work.session && work.chat.messages.map((item) => <ChatMessage key={item.id} item={item} chat={work.chat!.id} session={work.session!}
-              latest={item.id === lastMessage?.id} mascot={!incognito && item.id === lastMessage?.id} animate={item.id === animate} onQuote={quote} onSuggestion={(text) => { updateDraft({ text }); input.current?.focus() }} onCancel={() => { void cancel(item.id) }} onRetry={() => { void retry(item.id) }}/>)}
+          {work.chat ? <div className="thread-content" role="log" aria-label="История диалога" aria-live="polite">
+            {work.chat.messages.map((item) => <ChatMessage key={item.id} item={item} chat={work.chat!.id} session={work.session ?? {}}
+              readOnly={archivedIDs.has(item.id) || !work.session}
+              latest={item.id === lastMessage?.id} mascot={!incognito && item.id === lastAssistant?.id} animate={item.id === animate} onRetry={() => { void retry(item.id) }}/>)}
+            {!busy && !work.waiting && !!lastMessage?.suggestions?.length && <div className="reply-suggestions" role="group" aria-label="Варианты ответа">
+              {lastMessage.suggestions.map((suggestion) => <button type="button" className="soft-button" key={suggestion}
+                onClick={() => { updateDraft({ text: suggestion }); input.current?.focus() }}>{suggestion}</button>)}
+            </div>}
           </div> : showChat && <div className="thread-loading"><span className="spinner"/> {busy ? 'Отправляем вопрос…' : 'Открываем диалог…'}</div>}
         </div>
         <div className="composer-dock" ref={dock}>
           {!showChat && <div className="welcome">
             {incognito ? <h1>Диалог <span>инкогнито</span></h1> : <h1>Вузы <span>Новосибирска</span></h1>}
-            {!incognito && <p>Поступление, учёба и общежития. Ответы с источниками.</p>}
+            {!incognito && <p>Поступление, учёба и общежития в Новосибирске и других городах.</p>}
           </div>}
-          {work.notice && <div className="workspace-notice" role="alert"><span>{work.notice}</span><button type="button" className="mini-button" aria-label="Убрать уведомление" onClick={() => work.setNotice('')}><XIcon/></button></div>}
-          <Composer draft={draft} update={updateDraft} inputRef={input} disabled={busy} pending={Boolean(work.waiting)} guest={guest} onTranscribe={transcribe} onSubmit={() => { void send() }}/>
+          {work.notice && <div className="workspace-notice" role="alert"><span>{work.notice}</span><button type="button" className="mini-button" aria-label="Убрать уведомление" onClick={() => work.setNotice('')}><PigeonIcon name="close"/></button></div>}
+          <Composer draft={draft} update={updateDraft} inputRef={input} disabled={busy} pending={Boolean(work.waiting)} compact={compact}
+            onTranscribe={transcribe} onSubmit={() => { void send() }} cancelling={cancelling}
+            onCancel={workingMessage ? () => { void cancel(workingMessage.id) } : undefined}/>
           {!showChat && !incognito && <div className="prompts" aria-label="Примеры вопросов">
-            {prompts.map(({ label, prompt, Icon, tone }) => <button className={'prompt ' + tone} type="button" key={label} title={prompt} onClick={() => { updateDraft({ text: prompt }); input.current?.focus() }}>
-              <Icon weight="duotone" aria-hidden="true"/>{label}
+            {universityPrompts.map(({ label, prompt, icon }) => <button className="prompt" type="button" key={label} title={prompt} onClick={() => { updateDraft({ text: prompt }); input.current?.focus() }}>
+              <PigeonIcon name={icon}/>{label}
             </button>)}
           </div>}
+          {!profile && <GuestPromotions started={showChat}/>}
         </div>
         {!showChat && !incognito && <PigeonVolume/>}
       </div>
@@ -365,10 +354,9 @@ function Workspace({ profile, guest, incognito, theme, onTheme, onGuest, onLogin
   </div>
 }
 
-export function App() {
+function WorkspaceApp() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [guestMode, setGuestMode] = useState(false)
-  const [showAuth, setShowAuth] = useState(false)
   const [authRead, setAuthRead] = useState(false)
   const [demoEnabled, setDemoEnabled] = useState(false)
   const [isDemo, setIsDemo] = useState(() => location.hash === '#demo')
@@ -411,9 +399,14 @@ export function App() {
   if (isDemo && demoEnabled && !guest) return <Suspense fallback={<div className="app-loading" role="status">Открываем трассировку…</div>}><DemoStudio account={profile.name}/></Suspense>
   if (isDemo && !guest) return <main className="demo-studio"><a href="#">Вернуться в кабинет</a><p>Экран доступен назначенному демо-аккаунту.</p></main>
 
-  return <>
-    <Workspace demoEnabled={demoEnabled && !guest} key={(profile?.id ?? 'anonymous') + ':' + guestMode} profile={profile} guest={guest} incognito={guestMode} theme={theme} onTheme={setGuestTheme}
-      onGuest={() => setGuestMode(!guestMode)} onLogin={() => setShowAuth(true)} onProfile={accountChanged}/>
-    {showAuth && <AccountDialog initial="login" onClose={() => setShowAuth(false)} onAccount={(account) => { setGuestMode(false); accountChanged(account); setShowAuth(false) }}/>}
-  </>
+  return <Workspace demoEnabled={demoEnabled && !guest} key={(profile?.id ?? 'anonymous') + ':' + guestMode} profile={profile} guest={guest} incognito={guestMode} theme={theme} onTheme={setGuestTheme}
+    onGuest={() => setGuestMode(!guestMode)} onProfile={accountChanged}/>
+}
+
+export function App() {
+  const path = location.pathname.replace(/\/+$/, '')
+  if (path === '/login') return <AccountPage mode="login"/>
+  if (path === '/register') return <AccountPage mode="register"/>
+  if (!path && location.hash !== '#demo') return <LandingPage/>
+  return <WorkspaceApp/>
 }

@@ -7,14 +7,14 @@ from threading import BoundedSemaphore
 from time import perf_counter
 
 from inference.config import Limits
-from inference.domain.entities import Completion, Operation, Recognition
+from inference.domain.entities import ChoiceResult, Completion, Operation, Recognition
 from inference.domain.errors import InferenceError
 from inference.runtime.metrics import Metrics
 from inference.runtime.telemetry import event, numeric_usage
 
 
 @dataclass(frozen=True)
-class Timed[Result: (Completion, Recognition)]:
+class Timed[Result: (ChoiceResult, Completion, Recognition)]:
     value: Result
     latency_ms: int
 
@@ -23,6 +23,7 @@ class Execution:
     def __init__(self, limits: Limits) -> None:
         self.capacity = {
             Operation.LLM: BoundedSemaphore(limits.llm_concurrency),
+            Operation.DECISION: BoundedSemaphore(limits.llm_concurrency),
             Operation.ASR: BoundedSemaphore(
                 limits.asr_concurrency or min(limits.llm_concurrency, 2)
             ),
@@ -32,7 +33,7 @@ class Execution:
         }
         self.telemetry = Metrics()
 
-    def perform[Result: (Completion, Recognition)](
+    def perform[Result: (ChoiceResult, Completion, Recognition)](
         self, operation: Operation, run: Callable[[], Result]
     ) -> Timed[Result]:
         capacity = self.capacity[operation]

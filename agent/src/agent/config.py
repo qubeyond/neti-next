@@ -17,7 +17,11 @@ PROMPTS_DIRECTORY = Path(
 )
 PROMPT_NAMES = (
     "TEXT_SYSTEM_PROMPT",
-    "TURN_CONTEXT_PROMPT",
+    "DIALOGUE_ROUTING_PROMPT",
+    "DECISION_ROUTING_PROMPT",
+    "CASUAL_REPLY_PROMPT",
+    "DISCOVERY_ROUTING_PROMPT",
+    "DISCOVERY_ANSWER_PROMPT",
     "WEB_SYSTEM_PROMPT",
     "WEB_ANSWER_FORMAT_PROMPT",
     "WEB_REWRITE_PROMPT",
@@ -61,6 +65,17 @@ def load_settings(path: Path = ENV_FILE) -> dict[str, str]:
         raise AgentError("Не удалось прочитать файл конфигурации агента.") from None
 
     return {key: value for key, value in values.items() if value is not None}
+
+
+def product_prompt(instructions: str) -> str:
+    path = DEFAULT_PROMPTS_DIRECTORY / "product-role-prompt.txt"
+
+    try:
+        role = path.read_text(encoding="utf-8-sig").strip()
+    except (OSError, UnicodeError):
+        raise AgentError("Не удалось прочитать описание роли Пигеона.") from None
+
+    return f"{role}\n\n{instructions}"
 
 
 def optional(settings: dict[str, str], name: str) -> str | None:

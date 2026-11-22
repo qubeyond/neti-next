@@ -107,3 +107,33 @@ def test_checked_result_can_be_used_in_text_but_model_claim_cannot():
         check_answer("Какова сумма?", {**result, "answer": "Сумма — 2500 рублей."})["status"]
         == "unverified"
     )
+
+
+def test_normal_chat_can_request_sanitized_activity_stream(monkeypatch):
+    monkeypatch.setenv("AGENT_TOKEN", "")
+    monkeypatch.setenv("WEB_ANSWERS_ENABLED", "true")
+
+    def answer(_question):
+        with phase("search", service="web") as trace:
+            trace["provider"] = "test"
+            trace["sources"] = [
+                {"url": "https://example.org/doc", "title": "Документ", "excerpt": "Условия"}
+            ]
+            trace["usage"] = {"cost": 0.01}
+
+        return {"status": "answered", "answer": "Готово.", "citations": []}
+
+    api = TestClient(create_app(answer))
+    request = {"question": "Вопрос"}
+    stream = api.post("/agent/v1/answers", json=request, headers={"Accept": "application/x-ndjson"})
+    events = [json.loads(line) for line in stream.text.splitlines()]
+    plain = api.post("/agent/v1/answers", json=request)
+
+    assert stream.status_code == plain.status_code == 200
+    assert stream.headers["content-type"] == "application/x-ndjson"
+    assert events[0]["operation"] == "search"
+    assert events[1]["id"] == events[0]["id"]
+    assert isinstance(events[1]["duration_ms"], int)
+    assert events[1]["sources"][0]["excerpt"] == "Условия"
+    assert "usage" not in events[1]
+    assert events[-1]["answer"] == plain.json()

@@ -90,7 +90,7 @@ def test_http_wires_search_and_generation_through_application(monkeypatch):
         ]
 
     def complete(prompt, **options):
-        assert options["system_prompt"].startswith("Отвечай по источникам.")
+        assert "Отвечай по источникам." in options["system_prompt"]
         assert "〔1〕" in options["system_prompt"]
         assert json.loads(prompt)["search_fragments"][0]["text"] == ("Библиотека в корпусе 2.")
 
@@ -105,6 +105,11 @@ def test_http_wires_search_and_generation_through_application(monkeypatch):
         }
 
     monkeypatch.setattr(composition, "make_searcher", lambda **settings: search)
+    monkeypatch.setattr(
+        composition,
+        "dialogue_reply",
+        lambda question, *_args, **_kwargs: {"search_question": question},
+    )
     monkeypatch.setattr(composition, "ask", complete)
 
     response = client.post("/agent/v1/answers", json={"question": "Где библиотека?"})
@@ -179,6 +184,11 @@ def test_untrusted_passage_cannot_produce_uncited_answer(monkeypatch):
     def search(_question):
         return [{"title": "Документ", "url": "https://example.org/doc", "snippet": document}]
 
+    monkeypatch.setattr(
+        composition,
+        "dialogue_reply",
+        lambda question, *_args, **_kwargs: {"search_question": question},
+    )
     monkeypatch.setattr(composition, "ask", complete)
     monkeypatch.setattr(composition, "make_searcher", lambda **settings: search)
 
@@ -191,13 +201,8 @@ def test_untrusted_passage_cannot_produce_uncited_answer(monkeypatch):
     assert marker not in response.text
 
 
-def test_university_followup_keeps_original_subject(monkeypatch):
+def test_university_followup_keeps_original_subject():
     from agent.application import context
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Явное уточнение учреждения не требует вызова модели")
-
-    monkeypatch.setattr(context, "ask", forbidden)
 
     query, question = context.resolve(
         "НГУ",
@@ -205,8 +210,6 @@ def test_university_followup_keeps_original_subject(monkeypatch):
             {"role": "user", "text": "Сколько стоит общежитие?"},
             {"role": "assistant", "text": "О каком вузе идёт речь?"},
         ],
-        prompt="Проверка",
-        budget=100,
     )
 
     assert "общежитие" in query and "НГУ" in query
@@ -258,6 +261,11 @@ def test_deadline_and_citation_use_the_same_verified_excerpt(monkeypatch):
             )
         }
 
+    monkeypatch.setattr(
+        composition,
+        "dialogue_reply",
+        lambda question, *_args, **_kwargs: {"search_question": question},
+    )
     monkeypatch.setattr(composition, "ask", complete)
 
     response = client.post(
@@ -299,6 +307,11 @@ def test_photo_has_private_evidence_and_never_runs_web_search(monkeypatch):
         }
 
     monkeypatch.setattr(composition, "make_searcher", forbidden)
+    monkeypatch.setattr(
+        composition,
+        "dialogue_reply",
+        lambda question, *_args, **_kwargs: {"search_question": question},
+    )
     monkeypatch.setattr(composition, "ask", complete)
 
     response = client.post(

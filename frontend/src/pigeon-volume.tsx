@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import colors from './assets/pigeon-colors.json'
 import art from './assets/pigeon-ascii.txt?raw'
+import { pigeonShade } from './pigeon-shading'
 
 const palette: Record<string, string> = colors.palette
 const rows = art.trimEnd().split('\n')
@@ -8,7 +9,7 @@ const columns = 74
 const height = rows.length + 4
 const tau = Math.PI * 2
 
-type Point = { x: number; y: number; z: number; glyph: string; color: string }
+type Point = { x: number; y: number; z: number; color: string }
 
 function buildSurface() {
   const points: Point[] = []
@@ -24,8 +25,7 @@ function buildSurface() {
           x: x + Math.sin(around) * edge * width,
           y: y + Math.cos(vertical) * tall,
           z: z + Math.cos(around) * edge * depth,
-          glyph: stripe ? '%' : latitude % 3 === 0 ? '=' : 'x',
-          color: stripe ? '#263746' : color,
+          color: pigeonShade(stripe ? '#263746' : color, stripe ? '%' : latitude % 3 === 0 ? '=' : 'x'),
         })
       }
     }
@@ -50,12 +50,13 @@ function buildSurface() {
         const feature = y >= 8 && y <= 18 && Math.abs(center + radius * offset) < 8 && front > 0 ? 1.18 : 1
         const backOfHead = front < -.12 && head
         const color = palette[backOfHead ? (Math.abs(offset) < .58 ? '3' : '5') : colors.rows[y]?.[start + source] ?? '']
+        const glyph = backOfHead ? (Math.abs(offset) < .58 ? 'o' : 'x') : match[0][source] ?? '+'
+        const eye = y >= 8 && y <= 10 && front > .55 && Math.abs(center + radius * offset) < (y === 10 ? 2.5 : 4.5)
         if (color) points.push({
           x: center + radius * offset,
           y: y - rows.length / 2 + (y < 23 ? 6 : y < 29 ? 29 - y : 0),
           z: centerZ + front * depth * feature,
-          glyph: backOfHead ? (Math.abs(offset) < .58 ? 'o' : 'x') : match[0][source] ?? '+',
-          color,
+          color: pigeonShade(color, glyph, eye),
         })
       }
     }
@@ -72,7 +73,7 @@ function buildSurface() {
       const turn = around / 20 * tau
       points.push({
         x: Math.cos(turn) * radius, y: -16 + step * .22 + Math.sin(turn) * radius * .5,
-        z: 21 + step * .55, glyph: '+', color: '#69777f',
+        z: 21 + step * .55, color: pigeonShade('#69777f', '+'),
       })
     }
   }
@@ -114,8 +115,6 @@ export function PigeonVolume() {
       ctx.clearRect(0, 0, width, displayHeight)
       const cellWidth = width / columns
       const cellHeight = displayHeight / height
-      ctx.font = (cellWidth / .602) + 'px monospace'
-      ctx.textBaseline = 'middle'
       depth.fill(-Infinity)
       pixels.fill(undefined)
       const phase = Math.min(1, Math.max(0, (now - touched.current - 1800) / 1400))
@@ -135,9 +134,12 @@ export function PigeonVolume() {
         }
       }
       for (const [index, point] of pixels.entries()) {
-        if (!point) continue
-        ctx.fillStyle = point.color
-        ctx.fillText(point.glyph, (index % columns) * cellWidth, (Math.floor(index / columns) + .5) * cellHeight)
+        const column = index % columns
+        const neighbor = column > 0 && column < columns - 1 && pixels[index + 1] && pixels[index - 1]
+        const visiblePoint = point || neighbor
+        if (!visiblePoint) continue
+        ctx.fillStyle = visiblePoint.color
+        ctx.fillRect(column * cellWidth, Math.floor(index / columns) * cellHeight, cellWidth + .5, cellHeight + .5)
       }
       element.dataset.ready = 'true'
     }
@@ -202,7 +204,7 @@ export function PigeonVolume() {
         pointer.current.x = event.clientX
       }}
       onLostPointerCapture={() => { pointer.current = null }}>
-      Голубь из цветных ASCII-символов.
+      Объёмный Пигеон.
     </canvas>
   </figure>
 }

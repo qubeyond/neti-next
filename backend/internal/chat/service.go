@@ -164,8 +164,7 @@ func titled(text string) string {
 }
 
 func workingMessage() Message {
-	return Message{ID: identity.NewID(), Role: "assistant", State: "working", CreatedAt: time.Now().UTC(),
-		Activity: []Activity{{Kind: "queued", Label: "Запрос принят"}}}
+	return Message{ID: identity.NewID(), Role: "assistant", State: "working", CreatedAt: time.Now().UTC()}
 }
 
 func (s *Service) Send(who identity.Actor, chatID string, input SendInput, traceID string) (string, error) {
@@ -316,9 +315,7 @@ func (s *Service) updateRun(job runJob, apply func(*Message)) bool {
 
 func (s *Service) run(job runJob) {
 	defer s.turns.Release(job.permit)
-	if !s.updateRun(job, func(item *Message) {
-		item.Activity = append(item.Activity, Activity{Kind: "request", Label: "Агент обрабатывает вопрос", Elapsed: time.Since(job.start).Milliseconds()})
-	}) {
+	if !s.updateRun(job, func(*Message) {}) {
 		return
 	}
 	ctx := job.permit.Context
@@ -329,6 +326,15 @@ func (s *Service) run(job runJob) {
 	answer, err := s.agent.Answer(ctx, job.input, func(step Activity) {
 		step.Elapsed = time.Since(job.start).Milliseconds()
 		s.updateRun(job, func(item *Message) {
+			if step.ID != "" {
+				for index, previous := range item.Activity {
+					if previous.ID == step.ID {
+						step.Elapsed = previous.Elapsed
+						item.Activity[index] = step
+						return
+					}
+				}
+			}
 			if len(item.Activity) < 40 {
 				item.Activity = append(item.Activity, step)
 			}
@@ -336,6 +342,11 @@ func (s *Service) run(job runJob) {
 	})
 	s.updateRun(job, func(item *Message) {
 		item.Duration = time.Since(job.start).Milliseconds()
+		for index := range item.Activity {
+			if item.Activity[index].State == "running" {
+				item.Activity[index].State = "interrupted"
+			}
+		}
 		if ctx.Err() != nil {
 			err = ctx.Err()
 		}

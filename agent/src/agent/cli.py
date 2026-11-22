@@ -10,7 +10,7 @@ from agent.providers.inference import ask
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Помощник по вузам Новосибирска")
+    parser = argparse.ArgumentParser(description="Пигеон · помощник по вузам")
 
     parser.add_argument("question", help="Вопрос агенту")
     parser.add_argument("--model", help="Идентификатор модели RouterAI")

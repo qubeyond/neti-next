@@ -1,23 +1,8 @@
 """Уточняет недостающие условия текущего вопроса."""
 
-import json
 import re
 from typing import Literal, TypedDict
 
-from agent.domain.errors import AgentError
-from agent.domain.evidence import json_object
-from agent.providers.inference import ask
-
-_CONTEXTUAL = re.compile(
-    r"^(?:а\b|и\b|да\b|нет\b|там\b|тогда\b|если\b|что если\b|"
-    r"(?:сколько|где|когда|какая?|какие|какой)\s+(?:это|там|она|он|оно|они)\b)",
-    re.IGNORECASE,
-)
-_EXPLICIT_REFERENCE = re.compile(
-    r"\b(?:этот|этого|этой|этом|тот же|там же|то же самое|"
-    r"предыдущ\w*\s+(?:вопрос\w*|ответ\w*))\b",
-    re.I,
-)
 _AMBIGUOUS = re.compile(
     r"^(?:где (?:взять|получить) справку|сколько стоит (?:общежитие|общага|обучение)"
     r"|где расписание(?: моей группы| занятий)?|когда подавать документы)[?!.\s]*$",
@@ -25,8 +10,31 @@ _AMBIGUOUS = re.compile(
 )
 _INSTITUTION_ABBREVIATION = re.compile(r"^[А-ЯЁA-Z]{2,12}(?: [А-ЯЁA-Z]{2,12}){0,2}$")
 _INSTITUTION_CLARIFICATION = re.compile(r"\b(?:каком вузе|какой вуз|какой университет)\b", re.I)
+_TERM_CLARIFICATION = re.compile(
+    r'\bчто\s+(?:означает|значит|имеется в виду под)\s*[«"]([^»"\n]{1,50})[»"]',
+    re.I,
+)
 
-_IDENTIFIERS = re.compile(r"\b(?:20\d{2}|\d{2}\.\d{2}\.\d{2})\b")
+_UNIVERSITY_SLANG = re.compile(r"\bуник(?:и(?:к)?|ов|ам|ах|ами)?\b", re.I)
+_MIT_ALIAS = re.compile(r"\b(?:MIT|МИТ)\b", re.I)
+_MIT_SHORT = re.compile(r"\s*(?:(?:а|и)\s+)?(?:MIT|МИТ)[!?.,\s]*", re.I)
+_MIT_NAME = "Массачусетский технологический институт (MIT)"
+_DATA_SCIENCE_REPLY = re.compile(r"(?:дс|ds|data science)[?!.\s]*", re.I)
+_DATA_SCIENCE_OPTION = re.compile(r"\b(?:data science|дата сайенс|наука о данных)\b", re.I)
+_PICK_PROGRAM = re.compile(r"\b(?:найди|подбери|посоветуй|поищи|ищу|подбираю)\b", re.I)
+
+_OVERVIEW = re.compile(r"^(?:расскажи(?:те)?|что знаешь)\s+(?:о|об|про)\s+", re.I)
+_OVERVIEW_SWITCH = re.compile(
+    r"^(?:[аАиИ] )?([А-ЯЁA-Z]{2,12}|(?i:мгу|мфти|нгу|нгту|нгпу|вшэ|спбгу|сгугит|сгупс))"
+    r"[?!.\s]*$"
+)
+_FULL_NAME = re.compile(
+    r"^(?:а )?(?:как (?:полностью называется|называется)(?: вуз)?(?: полностью)?"
+    r"|какое (?:у него )?полное (?:название|наименование)(?: вуза)?)\s*[?!.]*$",
+    re.I,
+)
+_ABBREVIATIONS = re.compile(r"\b[А-ЯЁA-Z]{2,12}\b")
+
 _MISSING_REFERENT = re.compile(r"\b(?:туда|в этот вуз|в тот вуз|на эту программу)\b", re.I)
 _TIME_SCOPE = re.compile(
     r"\b(?:20\d{2}|бакалавр\w*|специалитет\w*|магистрат\w*|аспирант\w*|спо|колледж\w*|егэ|внутренн\w*)\b",
@@ -59,11 +67,59 @@ class Turn(TypedDict):
     text: str
 
 
-def resolve(question: str, history: list[Turn], *, prompt: str, budget: int) -> tuple[str, str]:
-    wants_context = _CONTEXTUAL.search(question) or _EXPLICIT_REFERENCE.search(question)
+def resolve(question: str, history: list[Turn]) -> tuple[str, str]:
+    mit_alias = _MIT_SHORT.fullmatch(question)
+
+    if history and history[-1]["role"] == "assistant":
+        last_reply = history[-1]["text"]
+        short_name = mit_alias or _INSTITUTION_ABBREVIATION.fullmatch(question.strip())
+
+        if short_name and _INSTITUTION_CLARIFICATION.search(last_reply):
+            if term := _TERM_CLARIFICATION.search(last_reply):
+                university = "MIT" if mit_alias else question.strip()
+
+                return (
+                    question,
+                    f"Понял, речь про {university}. Что ты имеешь в виду под «{term[1]}»?",
+                )
+
+    if mit_alias:
+        if (
+            len(history) >= 2
+            and history[-1]["role"] == "assistant"
+            and _INSTITUTION_CLARIFICATION.search(history[-1]["text"])
+        ):
+            previous = history[-2]["text"]
+
+            if history[-2]["role"] == "user" and _clarify(previous):
+                return f"{previous.rstrip(' ?.!')} в вузе {_MIT_NAME}?", ""
+
+        return f"Расскажи кратко про университет {_MIT_NAME} по официальным сведениям.", ""
+
+    if not re.search(r"массачусетск|massachusetts", question, re.I):
+        question = _MIT_ALIAS.sub(_MIT_NAME, question)
+
+    question = _UNIVERSITY_SLANG.sub("университеты", question)
+
+    overview = _OVERVIEW.match(question)
+
+    if overview and (named := _OVERVIEW_SWITCH.fullmatch(question[overview.end() :].strip())):
+        university = named[1].upper()
+
+        return f"Расскажи кратко про университет {university} по официальным сведениям.", ""
 
     if not history:
         return question, _clarify(question)
+
+    if (
+        len(history) >= 2
+        and history[-1]["role"] == "assistant"
+        and history[-2]["role"] == "user"
+        and _DATA_SCIENCE_REPLY.fullmatch(question)
+        and _DATA_SCIENCE_OPTION.search(history[-1]["text"])
+        and _PICK_PROGRAM.search(history[-2]["text"])
+    ):
+        return "Подбери учебные программы по Data Science", ""
 
     if (
         len(history) >= 2
@@ -76,33 +132,17 @@ def resolve(question: str, history: list[Turn], *, prompt: str, budget: int) -> 
 
         return f"{previous} в вузе {question.strip()}?", ""
 
-    if not wants_context and len(question.split()) > 3 and not _clarify(question):
-        return question, ""
+    previous = next((turn["text"] for turn in reversed(history) if turn["role"] == "user"), "")
 
-    try:
-        response = ask(
-            json.dumps({"question": question, "history": history}, ensure_ascii=False),
-            system_prompt=prompt,
-            response_format={"type": "json_object"},
-            reasoning_enabled=False,
-            max_tokens=budget,
-            allow_empty=True,
-        )
-        decision = json_object(response["answer"])
-        standalone = decision.get("question")
-        clarification = decision.get("clarification")
+    if _OVERVIEW.match(previous) and (switch := _OVERVIEW_SWITCH.fullmatch(question.strip())):
+        university = switch[1].upper()
 
-        if (
-            isinstance(standalone, str)
-            and standalone.strip()
-            and len(standalone) <= 2000
-            and set(_IDENTIFIERS.findall(question)) <= set(_IDENTIFIERS.findall(standalone))
-        ):
-            return standalone.strip(), ""
+        return f"Расскажи кратко про университет {university} по официальным сведениям.", ""
 
-        if isinstance(clarification, str) and 0 < len(clarification.strip()) <= 300:
-            return question, clarification.strip()
-    except (AgentError, ValueError, TypeError):
-        pass
+    if _FULL_NAME.fullmatch(question.strip()):
+        names = set(_ABBREVIATIONS.findall(previous)) - {"ЕГЭ", "ОГЭ", "РФ", "ИТ"}
+
+        if len(names) == 1:
+            return f"Каково полное официальное наименование вуза {names.pop()}?", ""
 
     return question, ""

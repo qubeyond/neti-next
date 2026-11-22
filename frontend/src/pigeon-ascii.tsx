@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import colors from './assets/pigeon-colors.json'
 import portrait from './assets/pigeon-ascii.txt?raw'
+import { pigeonShade } from './pigeon-shading'
 
 const rows = portrait.trimEnd().split('\n')
 const lipCenter = 28.5
@@ -27,7 +28,9 @@ const palette: Record<string, string> = colors.palette
 const paintedFrames = speechFrames.map((frame) => frame.split('\n').slice(0, 35).map((row, y) => {
   const runs: { color?: string; text: string }[] = []
   Array.from(row).forEach((glyph, x) => {
-    const color = glyph === ' ' ? undefined : palette[colors.rows[y]?.[x] ?? '']
+    const base = glyph === ' ' ? undefined : palette[colors.rows[y]?.[x] ?? '']
+    const eye = y >= 8 && y <= 10 && Math.abs(x - lipCenter) < (y === 10 ? 2.5 : 4.5)
+    const color = base ? pigeonShade(base, glyph, eye) : undefined
     const previous = runs.at(-1)
     if (previous && previous.color === color) previous.text += glyph
     else runs.push({ color, text: glyph })
@@ -59,9 +62,9 @@ export function AsciiPigeon({ speaking }: { speaking: boolean }) {
     }
   }, [speaking])
 
-  return <figure className="ascii-pigeon" role="img" aria-label="ASCII-голубь с человеческими губами" data-speaking={speaking || undefined}>
+  return <figure className="ascii-pigeon" role="img" aria-label="Пигеон" data-speaking={speaking || undefined}>
     <pre aria-hidden="true">{(paintedFrames[speaking ? frame : 0] ?? []).map((row, y) => <span key={y}>
-      {row.map(({ color, text }, x) => color ? <span key={x} style={{ color }}>{text}</span> : text)}
+      {row.map(({ color, text }, x) => color ? <span key={x} style={{ backgroundColor: color }}>{text}</span> : text)}
       {'\n'}
     </span>)}</pre>
   </figure>

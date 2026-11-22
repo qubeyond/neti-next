@@ -6,7 +6,7 @@ import re
 from agent.config import flag, load_settings, positive_int, required
 from agent.domain.errors import AgentError
 from agent.domain.evidence import json_object
-from agent.domain.recovery import QUESTION_WORDS
+from agent.domain.recovery import QUESTION_WORDS, document_key
 from agent.domain.sources import SearchResult
 from agent.providers.inference import ask
 
@@ -33,10 +33,16 @@ def rewrite_query(
                 {
                     "question": question,
                     "candidate_titles": [row["title"][:title_limit] for row in sources],
+                    "candidate_domains": [
+                        key[0] for row in sources if (key := document_key(row["url"]))
+                    ],
                 },
                 ensure_ascii=False,
             ),
-            system_prompt=prompt,
+            system_prompt=(
+                f"{prompt} При сравнении ищи официальное доказательство для варианта, "
+                "который хуже представлен среди кандидатов. Сохрани год, программу и категорию."
+            ),
             max_tokens=budget,
             reasoning_enabled=reasoning,
             allow_empty=True,

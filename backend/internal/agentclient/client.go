@@ -121,6 +121,7 @@ func (agent Client) Answer(ctx context.Context, input chat.AgentRequest, report 
 		return prepared.local, apperr.HTTP(503, "Адрес агента настроен неверно.")
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/x-ndjson, application/json")
 	httpapi.Propagate(ctx, request)
 	if agent.token != "" {
 		request.Header.Set("Authorization", "Bearer "+agent.token)
@@ -135,6 +136,9 @@ func (agent Client) Answer(ctx context.Context, input chat.AgentRequest, report 
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		return prepared.local, httpapi.UpstreamFailure(response.StatusCode, "Агент")
+	}
+	if strings.HasPrefix(response.Header.Get("Content-Type"), "application/x-ndjson") {
+		return chatTrace(ctx, response.Body, prepared, report)
 	}
 	var answer chat.AgentAnswer
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&answer); err != nil {

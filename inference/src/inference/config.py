@@ -77,6 +77,8 @@ class RouterAIConfig(Environment):
     )
     inference_extra_models: str = ""
     llm_model: NonEmpty
+    decision_model: NonEmpty = "~typesafe/jev-latest"
+    decision_timeout_seconds: PositiveInt = 3
     asr_model: NonEmpty
     asr_language: NonEmpty
     ocr_model: NonEmpty

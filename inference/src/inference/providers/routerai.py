@@ -4,7 +4,7 @@ import base64
 import json
 import logging
 from collections.abc import Callable, Iterable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, closing
 from dataclasses import asdict
 from time import monotonic
 from typing import cast
@@ -23,6 +23,8 @@ from openai.types.chat import ChatCompletionMessageParam
 from inference.config import RouterAIConfig
 from inference.domain.entities import (
     Capabilities,
+    ChoiceRequest,
+    ChoiceResult,
     Completion,
     Generation,
     Operation,
@@ -32,6 +34,10 @@ from inference.domain.entities import (
 from inference.domain.errors import InferenceError
 from inference.domain.ports import Provider
 from inference.runtime.telemetry import DEADLINE, DISCONNECTED, event
+
+
+class _DecisionResponse(APIResponse[dict]):
+    pass
 
 
 def _usage(result: dict) -> dict:
@@ -60,18 +66,19 @@ class RouterAIProvider(Provider):
             self.client.close()
 
     def _receive(
-        self, endpoint: str, call: Callable[[OpenAI], AbstractContextManager[APIResponse]]
+        self,
+        endpoint: str,
+        call: Callable[[OpenAI], AbstractContextManager[APIResponse]],
+        *,
+        timeout_seconds: int | None = None,
     ) -> dict:
         if self.client is None:
             raise InferenceError(503, "Провайдер не настроен.")
 
         end = DEADLINE.get()
         disconnected = DISCONNECTED.get()
-        timeout = (
-            self.config.timeout_seconds
-            if end is None
-            else min(self.config.timeout_seconds, end - monotonic())
-        )
+        limit = timeout_seconds or self.config.timeout_seconds
+        timeout = limit if end is None else min(limit, end - monotonic())
 
         if timeout <= 0 or (disconnected is not None and disconnected.is_set()):
             raise InferenceError(504, "Бюджет времени исчерпан.")
@@ -159,6 +166,7 @@ class RouterAIProvider(Provider):
             choice = result["choices"][0]
             message = choice["message"]
             content = message.get("content")
+            calls = message.get("tool_calls")
         except (KeyError, IndexError, TypeError, AttributeError):
             raise InferenceError(502, "Провайдер не вернул ответ модели.") from None
 
@@ -168,6 +176,9 @@ class RouterAIProvider(Provider):
             model=result.get("model") or model,
             usage=_usage(result),
             finish_reason=choice.get("finish_reason"),
+            tool_calls=[call for call in calls if isinstance(call, dict)]
+            if isinstance(calls, list)
+            else [],
         )
 
     def generate(self, request: Generation) -> Completion:
@@ -251,6 +262,52 @@ class RouterAIProvider(Provider):
 
         return Scan(texts, self.config.pdf_ocr_engine, result.usage)
 
+    def decide(self, request: ChoiceRequest) -> ChoiceResult:
+        endpoint = "/decisions"
+        model = self.config.decision_model
+        payload = {
+            "model": model,
+            "state": request.state,
+            "questions": {
+                "choice": {
+                    "type": "choice",
+                    "instructions": request.instructions,
+                    "criteria": request.choices,
+                }
+            },
+        }
+        result = self._receive(
+            endpoint,
+            lambda client: closing(
+                client.post(
+                    endpoint,
+                    body=payload,
+                    cast_to=_DecisionResponse,
+                    options={"headers": {"X-Stainless-Raw-Response": "stream"}},
+                )
+            ),
+            timeout_seconds=self.config.decision_timeout_seconds,
+        )
+        answers = result.get("answers")
+        answer = answers.get("choice") if isinstance(answers, dict) else None
+        choice = answer.get("choice") if isinstance(answer, dict) else None
+
+        if not isinstance(choice, str) or choice not in request.choices:
+            raise InferenceError(502, "Провайдер вернул неизвестный вариант.")
+
+        raw_usage = _usage(result)
+        usage = {
+            metric: raw_usage[key]
+            for key, metric in (
+                ("input_tokens", "prompt_tokens"),
+                ("output_tokens", "completion_tokens"),
+                ("cost", "cost"),
+            )
+            if key in raw_usage
+        }
+
+        return ChoiceResult(choice, model, usage)
+
     def capabilities(self) -> Capabilities:
         return Capabilities(
             provider="routerai",
@@ -259,5 +316,6 @@ class RouterAIProvider(Provider):
                 Operation.LLM: self.config.llm_model,
                 Operation.ASR: self.config.asr_model,
                 Operation.OCR: self.config.ocr_model,
+                Operation.DECISION: self.config.decision_model,
             },
         )

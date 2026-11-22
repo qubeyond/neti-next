@@ -119,7 +119,7 @@ func (service inferenceClient) prepare(ctx context.Context, input chat.AgentRequ
 		if err != nil {
 			return "", nil, nil, apperr.HTTP(404, "Не удалось прочитать вложение диалога.")
 		}
-		report(chat.Activity{Kind: "inference", Label: "Распознаём вложение"})
+		started := time.Now()
 		recognize := service.recognize
 		if strings.HasPrefix(file.MIME, "audio/") && service.audioLimit > 0 {
 			if err := probeAudio(ctx, data, service.audioLimit); err != nil {
@@ -130,6 +130,12 @@ func (service inferenceClient) prepare(ctx context.Context, input chat.AgentRequ
 			recognize = service.preparePDF
 		}
 		result, err := recognize(ctx, file, data)
+		elapsed := int(time.Since(started).Milliseconds())
+		state := "ok"
+		if err != nil {
+			state = "error"
+		}
+		report(chat.Activity{Kind: "inference", Label: "Распознаю вложение", State: state, Duration: &elapsed})
 		if err != nil {
 			return "", nil, nil, err
 		}

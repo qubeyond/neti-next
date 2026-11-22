@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 from agent.domain.recovery import document_key
 from agent.domain.tables import AGGREGATE, TOTAL
 
+_BULLET = re.compile(r"^(?:[-*+]|[1-9]\d*\.)[ \t]+[^\n]+$", re.M)
+_CITATION_REF = re.compile(r"〔([1-9][0-9]*)〕")
 _CRITICAL_NUMBER = re.compile(
     r"(?<!\d)(\d+(?:[ \u00a0\u202f]\d{3})*(?:[.,]\d+)?)\s*"
     r"(?:₽|руб\w*|мест\b|балл\w*|%|тыс\.|января|февраля|марта|апреля|мая|июня|"
@@ -23,6 +25,45 @@ _CHANGE = re.compile(r"\b(?:измен|меня|корректир|исправ|
 _APPLICATION = re.compile(r"\bзаявлен\w*", re.I)
 _LETTER_REQUEST = re.compile(r"\b(?:каким|какое) (?:почтовым )?письм\w*\b", re.I)
 _LETTER_KIND = re.compile(r"\b(?:заказн\w*|простым|простое|ценн\w*|описью|уведомлением)\b", re.I)
+
+
+_ADMISSION = re.compile(
+    r"\b(?:до какой даты|когда|срок\w*|дедлайн\w*)\b.*"
+    r"\b(?:прием\w*|подач\w*|документ\w*)\b",
+    re.I,
+)
+_CAMPAIGN_YEAR = re.compile(r"\b20\d{2}\b")
+_DATE_CLAIM = re.compile(
+    r"\b(?:\d{1,2}[./]\d{1,2}|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|"
+    r"июля|августа|сентября|октября|ноября|декабря))\b",
+    re.I,
+)
+
+
+def _missing_campaign(question: str, result: dict, citations: list[dict]) -> str:
+    years = set(_CAMPAIGN_YEAR.findall(question))
+
+    if len(years) != 1 or not _ADMISSION.search(question.replace("ё", "е")):
+        return ""
+
+    if not _DATE_CLAIM.search(result["answer"]) and not result.get("events"):
+        return ""
+
+    year = next(iter(years))
+    sources = {source.get("source"): source for source in (result.get("sources") or [])}
+
+    for citation in citations:
+        quote = citation["quote"]
+        source = sources.get(citation.get("source"), {})
+        text = source.get("text", "")
+        position = text.find(quote)
+        nearby = text[max(0, position - 220) : position + len(quote) + 120] if position >= 0 else ""
+        locator = f"{source.get('title', '')} {source.get('url', '')}"
+
+        if year in _CAMPAIGN_YEAR.findall(f"{locator} {quote} {nearby}"):
+            return ""
+
+    return year
 
 
 def _procedure_supported(question: str, answer: str, citations: list[dict]) -> bool:
@@ -107,6 +148,7 @@ def check_answer(question: str, result: dict) -> dict:
             "conflicting_login_links",
             "procedure",
             "audit",
+            "campaign",
         }:
             return result
 
@@ -163,6 +205,19 @@ def check_answer(question: str, result: dict) -> dict:
             "grounding_failure": "procedure",
         }
 
+    if trusted and (campaign := _missing_campaign(question, result, citations)):
+        return {
+            **result,
+            "status": "unverified",
+            "answer": (
+                f"Не удалось подтвердить срок приёма документов для кампании {campaign} года."
+            ),
+            "citations": [],
+            "blocks": [],
+            "events": [],
+            "grounding_failure": "campaign",
+        }
+
     if trusted and (not needs_total or status == "partial" or total_supported):
         return result
 
@@ -178,6 +233,52 @@ def check_answer(question: str, result: dict) -> dict:
         "answer": message,
         "citations": [],
         "grounding_failure": "missing_total" if trusted else "citations",
+    }
+
+
+def supported_list(question: str, draft: dict) -> dict | None:
+    items = _BULLET.findall(draft["answer"])
+
+    if len(items) < 2 or draft.get("blocks") or draft.get("events"):
+        return None
+
+    verified = {
+        item["ref"] for item in draft["citations"] if item.get("verified") and "ref" in item
+    }
+    retained = []
+    used_refs = set()
+
+    for item in items:
+        refs = {int(ref) for ref in _CITATION_REF.findall(item)}
+
+        if not refs or not refs <= verified:
+            continue
+
+        checked = check_answer(
+            question,
+            {
+                **draft,
+                "status": "partial",
+                "answer": item,
+                "malformed_citations": 0,
+                "citations": [
+                    citation for citation in draft["citations"] if citation.get("ref") in refs
+                ],
+            },
+        )
+
+        if checked["status"] == "partial":
+            retained.append(checked)
+            used_refs.update(refs)
+
+    if not retained:
+        return None
+
+    return {
+        **retained[0],
+        "answer": "\n".join(item["answer"] for item in retained),
+        "citations": [cite for cite in draft["citations"] if cite.get("ref") in used_refs],
+        "follow_up": draft.get("follow_up") or "Какой вариант тебе интереснее уточнить?",
     }
 
 

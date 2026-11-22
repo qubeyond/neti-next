@@ -4,12 +4,14 @@ from dataclasses import dataclass
 from time import perf_counter
 
 from agent.application.audit import Verification, verify_answer
+from agent.domain.admissions import graduate_admission_fact
 from agent.domain.errors import AgentError
-from agent.domain.grounding import check_answer, is_truncated
+from agent.domain.grounding import check_answer, is_truncated, supported_list
+from agent.domain.institution import institution_fact
 from agent.domain.ports import GenerateAnswer, ReadDocument, RewriteQuery, Search, SearchFactory
-from agent.domain.query import information_question, public_query
+from agent.domain.query import information_question, public_query, reference_text
 from agent.domain.recovery import document_excerpt, document_key, read_candidate
-from agent.domain.sources import SearchResult
+from agent.domain.sources import SearchResult, evidence_sources
 from agent.runtime import phase, remaining_time
 
 
@@ -23,6 +25,27 @@ def _source_domains(results: list[SearchResult]) -> list[str]:
     return list(domains)[:8]
 
 
+def _activity_sources(results: list[SearchResult]) -> list[dict[str, str]]:
+    previews = []
+
+    for result in results:
+        if document_key(result["url"]):
+            previews.append(
+                {
+                    "url": result["url"],
+                    "title": " ".join(result["title"].split())[:100],
+                    "excerpt": " ".join(reference_text(result["snippet"]).split())[:180].lstrip(
+                        "# "
+                    ),
+                }
+            )
+
+            if len(previews) == 3:
+                break
+
+    return previews
+
+
 def _grounded(response: dict) -> bool:
     citations = response["citations"]
 
@@ -31,6 +54,16 @@ def _grounded(response: dict) -> bool:
         and all(item["verified"] for item in citations)
         and not response["malformed_citations"]
     )
+
+
+def _with_follow_up(response: dict) -> dict:
+    if response["status"] == "partial" and (question := response.get("follow_up")):
+        answer = response["answer"].rstrip()
+
+        if not answer.endswith("?"):
+            return {**response, "answer": f"{answer}\n\n{question}"}
+
+    return response
 
 
 @dataclass(frozen=True)
@@ -84,14 +117,46 @@ class AnswerService:
                     reused = True
 
         with phase("generation"):
-            initial = self.generate(question, results, model=model)
+            draft = self.generate(question, results, model=model)
 
         with phase("grounding") as trace:
-            initial = check_answer(question, initial)
+            initial = check_answer(question, draft)
             trace["decision"] = initial["status"]
             trace["count"] = len(initial["citations"])
 
+        if (
+            self.verify is not None
+            and initial.get("grounding_failure") == "citations"
+            and not is_truncated(draft)
+            and (supported := supported_list(question, draft))
+        ):
+            checked = verify_answer(self.verify, question, supported)
+
+            if checked["status"] == "partial":
+                return _with_follow_up(checked)
+
+        if initial["status"] in {"partial", "unverified", "invalid"} and (
+            fact := graduate_admission_fact(question, results)
+        ):
+            if initial["status"] == "partial" and not is_truncated(initial):
+                checked = verify_answer(self.verify, question, initial)
+
+                if checked["status"] == "partial":
+                    return _with_follow_up(
+                        {**checked, "follow_up": checked.get("follow_up") or fact["follow_up"]}
+                    )
+
+            return _with_follow_up(check_answer(question, fact))
+
+        if initial["status"] in {"unverified", "invalid"}:
+            if fact := institution_fact(question, results, initial):
+                return check_answer(question, fact)
+
+        repair_attempted = False
+
         if self.repair is not None and (initial["status"] == "invalid" or is_truncated(initial)):
+            repair_attempted = True
+
             try:
                 remaining_time(1)
 
@@ -111,19 +176,75 @@ class AnswerService:
                 "citations": [],
             }
 
+        if (
+            initial["status"] == "partial"
+            and initial.get("follow_up")
+            and not is_truncated(initial)
+        ):
+            initial = verify_answer(self.verify, question, initial)
+
+            if initial["status"] == "partial":
+                return _with_follow_up(initial)
+
+        if not repair_attempted and initial["status"] == "unverified" and initial.get("sources"):
+            repair_attempted = True
+
+            if repaired := self._repair_supported(question, results, model):
+                return repaired
+
         result = self.recover(
             question, results, initial, model=model, skip_read=reused, skip_search=used_backup
         )
 
-        return verify_answer(self.verify, question, check_answer(question, result))
+        checked = verify_answer(self.verify, question, check_answer(question, result))
+
+        if checked.get("grounding_failure") == "audit":
+            if fact := institution_fact(question, results, checked):
+                return check_answer(question, fact)
+
+            if not repair_attempted and (
+                repaired := self._repair_supported(question, results, model)
+            ):
+                return repaired
+
+        if checked["status"] == "unverified" and (
+            fact := graduate_admission_fact(question, results)
+        ):
+            return _with_follow_up(check_answer(question, fact))
+
+        return _with_follow_up(checked)
+
+    def _repair_supported(
+        self, question: str, results: list[SearchResult], model: str | None
+    ) -> dict | None:
+        if self.repair is None or not results:
+            return None
+
+        try:
+            remaining_time(1)
+
+            with phase("repair") as trace:
+                repaired = check_answer(question, self.repair(question, results, model=model))
+                trace["decision"] = repaired["status"]
+
+            if not is_truncated(repaired):
+                repaired = verify_answer(self.verify, question, repaired)
+
+                if repaired["status"] in {"answered", "partial"}:
+                    return _with_follow_up(repaired)
+        except AgentError:
+            pass
+
+        return None
 
     def _search(self, query: str) -> tuple[list[SearchResult], bool]:
         try:
             with phase("search", service="web") as trace:
                 trace["provider"] = self.search_provider
-                results = self.search(query)
+                results = evidence_sources(self.search(query))
                 trace["count"] = len(results)
                 trace["domains"] = _source_domains(results)
+                trace["sources"] = _activity_sources(results)
 
             return results, False
         except AgentError as primary:
@@ -144,9 +265,10 @@ class AnswerService:
             if self.backup_search is None:
                 return []
 
-            results = self.backup_search()(query)
+            results = evidence_sources(self.backup_search()(query))
             trace["count"] = len(results)
             trace["domains"] = _source_domains(results)
+            trace["sources"] = _activity_sources(results)
 
         return results
 
@@ -166,8 +288,16 @@ class AnswerService:
         if self.read is None and self.backup_search is None:
             return initial
 
+        comparison_search = (
+            "comparison" in initial.get("active_skills", ())
+            and self.backup_search is not None
+            and self.rewrite is not None
+            and not skip_search
+        )
         index = (
-            read_candidate(question, results) if self.read is not None and not skip_read else None
+            read_candidate(question, results)
+            if self.read is not None and not skip_read and not comparison_search
+            else None
         )
         action = "read" if index is not None else "search"
 
@@ -191,6 +321,11 @@ class AnswerService:
                     text = self.read(results[index]["url"])
                     trace["count"] = int(bool(text))
                     trace["domains"] = _source_domains([results[index]])
+
+                    if text:
+                        trace["sources"] = _activity_sources(
+                            [{**results[index], "snippet": text[:1000]}]
+                        )
 
                 if text and (excerpt := document_excerpt(text, question, self.source_limit)):
                     updated[index] = {**updated[index], "snippet": excerpt}

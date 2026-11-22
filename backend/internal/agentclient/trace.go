@@ -22,28 +22,29 @@ type TraceUsage struct {
 }
 
 type TraceEvent struct {
-	Type         string            `json:"type"`
-	RequestID    string            `json:"request_id,omitempty"`
-	ID           string            `json:"id,omitempty"`
-	Parent       string            `json:"parent,omitempty"`
-	Service      string            `json:"service,omitempty"`
-	Operation    string            `json:"operation,omitempty"`
-	At           *int64            `json:"at_ms,omitempty"`
-	Duration     *int              `json:"duration_ms,omitempty"`
-	Upstream     *int              `json:"upstream_ms,omitempty"`
-	Status       int               `json:"http_status,omitempty"`
-	Count        *int              `json:"count,omitempty"`
-	CacheHit     *bool             `json:"cache_hit,omitempty"`
-	Outcome      string            `json:"outcome,omitempty"`
-	Decision     string            `json:"decision,omitempty"`
-	Recovery     string            `json:"recovery,omitempty"`
-	Model        string            `json:"model,omitempty"`
-	Domains      []string          `json:"domains,omitempty"`
-	ActiveSkills []string          `json:"active_skills,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	Usage        *TraceUsage       `json:"usage,omitempty"`
-	Answer       *chat.AgentAnswer `json:"answer,omitempty"`
-	Error        string            `json:"detail,omitempty"`
+	Type         string                `json:"type"`
+	RequestID    string                `json:"request_id,omitempty"`
+	ID           string                `json:"id,omitempty"`
+	Parent       string                `json:"parent,omitempty"`
+	Service      string                `json:"service,omitempty"`
+	Operation    string                `json:"operation,omitempty"`
+	At           *int64                `json:"at_ms,omitempty"`
+	Duration     *int                  `json:"duration_ms,omitempty"`
+	Upstream     *int                  `json:"upstream_ms,omitempty"`
+	Status       int                   `json:"http_status,omitempty"`
+	Count        *int                  `json:"count,omitempty"`
+	CacheHit     *bool                 `json:"cache_hit,omitempty"`
+	Outcome      string                `json:"outcome,omitempty"`
+	Decision     string                `json:"decision,omitempty"`
+	Recovery     string                `json:"recovery,omitempty"`
+	Model        string                `json:"model,omitempty"`
+	Domains      []string              `json:"domains,omitempty"`
+	ActiveSkills []string              `json:"active_skills,omitempty"`
+	Sources      []chat.ActivitySource `json:"sources,omitempty"`
+	Provider     string                `json:"provider,omitempty"`
+	Usage        *TraceUsage           `json:"usage,omitempty"`
+	Answer       *chat.AgentAnswer     `json:"answer,omitempty"`
+	Error        string                `json:"detail,omitempty"`
 }
 
 type demoMediaKey struct{}
@@ -95,7 +96,11 @@ func (agent Client) Trace(ctx context.Context, input chat.AgentRequest, emit fun
 	if response.StatusCode != 200 {
 		return httpapi.UpstreamFailure(response.StatusCode, "Агент")
 	}
-	reader := bufio.NewScanner(io.LimitReader(response.Body, 2<<20))
+	return readTrace(ctx, response.Body, prepared, emit)
+}
+
+func readTrace(ctx context.Context, body io.Reader, prepared preparedTurn, emit func(TraceEvent) error) error {
+	reader := bufio.NewScanner(io.LimitReader(body, 2<<20))
 	reader.Buffer(make([]byte, 4096), 1<<20)
 	for reader.Scan() {
 		var event TraceEvent
@@ -125,4 +130,52 @@ func (agent Client) Trace(ctx context.Context, input chat.AgentRequest, emit fun
 		return ctx.Err()
 	}
 	return apperr.HTTP(502, "Поток событий завершился без ответа.")
+}
+
+var activityLabels = map[string]string{
+	"route_turn":      "Определяю, нужны ли источники",
+	"resolve_context": "Уточняю контекст вопроса",
+	"search":          "Ищу материалы по вопросу",
+	"backup_search":   "Ищу дополнительные источники",
+	"read":            "Читаю найденный документ",
+	"select_skills":   "Выбираю навыки для ответа",
+	"generation":      "Сопоставляю факты и источники",
+	"regeneration":    "Дополняю ответ новыми источниками",
+	"verify":          "Сверяю утверждения с цитатами",
+}
+
+func chatTrace(ctx context.Context, body io.Reader, prepared preparedTurn, report func(chat.Activity)) (chat.AgentAnswer, error) {
+	answer := prepared.local
+	active := make(map[string]chat.Activity)
+	err := readTrace(ctx, body, prepared, func(event TraceEvent) error {
+		switch event.Type {
+		case "span_start":
+			label, visible := activityLabels[event.Operation]
+			if !visible {
+				return nil
+			}
+			step := chat.Activity{ID: event.ID, Kind: event.Operation, Label: label, State: "running"}
+			active[event.ID] = step
+			if event.Operation != "select_skills" && event.Operation != "resolve_context" {
+				report(step)
+			}
+		case "span_end":
+			step, visible := active[event.ID]
+			if !visible {
+				return nil
+			}
+			delete(active, event.ID)
+			step.State, step.Duration = event.Outcome, event.Duration
+			step.Provider, step.Domains, step.Count = event.Provider, event.Domains, event.Count
+			step.Skills, step.Sources = event.ActiveSkills, event.Sources
+			if (step.Kind != "select_skills" || len(step.Skills) > 0) &&
+				(step.Kind != "resolve_context" || (step.Duration != nil && *step.Duration >= 50)) {
+				report(step)
+			}
+		case "answer":
+			answer = *event.Answer
+		}
+		return nil
+	})
+	return answer, err
 }

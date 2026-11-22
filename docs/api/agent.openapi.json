@@ -423,6 +423,11 @@
                 "schema": {
                   "$ref": "#/components/schemas/AnswerResponse"
                 }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
             "description": "Successful Response"

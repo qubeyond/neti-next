@@ -63,3 +63,19 @@ legacy_prompt = "WEB_TABLE_PROMPT"
 [skills.attachment]
 when = "attachment"
 legacy_prompt = "WEB_ATTACHMENT_PROMPT"
+
+[skills.overview]
+when = "web"
+pattern = '''
+(?ix)
+^(?:расскажи(?:те)?\s+(?:кратко\s+)?(?:о|об|про)\s+|что\s+за\s+)
+(?:(?:вуз|университет)\s+)?[^?!.]{2,75}(?:\s+по\s+официальным\s+сведениям)?[?!.\s]*$
+'''
+
+[skills.ranking]
+when = "web"
+pattern = '''
+(?ix)
+\b(?:топ(?:ов\w*)?|лучш\w*|рейтинг\w*)\b.{0,45}\b(?:вуз\w*|университет\w*)\b
+|\b(?:вуз\w*|университет\w*)\b.{0,45}\b(?:топ(?:ов\w*)?|лучш\w*|рейтинг\w*)\b
+'''
