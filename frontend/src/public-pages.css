@@ -36,7 +36,7 @@
   text-decoration: none;
 }
 
-.site-brand .brand-mark { --brand-neck: var(--site-accent); width: clamp(54px, 15vw, 68px); color: var(--site-olive); }
+.site-brand .brand-mark { width: clamp(54px, 15vw, 68px); color: var(--site-olive); }
 
 .site-button {
   display: inline-flex;

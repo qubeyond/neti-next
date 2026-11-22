@@ -96,7 +96,6 @@ svg { flex: none; }
 .brand-mark { display: block; flex: none; width: 53px; color: var(--accent); }
 .brand-flight, .brand-flight svg { display: block; width: 100%; }
 .brand-flight svg { overflow: visible; }
-.brand-neck { fill: var(--brand-neck, var(--sidebar)); opacity: .54; }
 .brand-wing { transform-box: view-box; }
 .brand-wing-left {
   --wing-fold: -13deg;
