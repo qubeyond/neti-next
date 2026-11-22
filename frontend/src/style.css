@@ -93,8 +93,58 @@ svg { flex: none; }
 .sidebar-open .sidebar { visibility: visible; }
 .sidebar-brand { display: flex; align-items: center; gap: 9px; margin: 21px 12px 0 20px; white-space: nowrap; }
 .sidebar-brand strong { font-size: 1.18rem; font-weight: 800; letter-spacing: -.045em; }
-.brand-mark { display: grid; flex: none; place-items: center; width: 31px; aspect-ratio: 1; color: var(--on-accent); background: var(--accent); border-radius: 9px; }
-.brand-mark svg { width: 76%; height: 76%; }
+.brand-mark {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 31px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 9px;
+}
+.brand-feather { display: block; width: 26px; transform-origin: 25% 82%; }
+.brand-feather svg { display: block; width: 100%; }
+.brand-ink {
+  position: absolute;
+  inset: auto auto 5px 8px;
+  width: 11px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--brand-ink, currentColor);
+  opacity: .8;
+  transform-origin: left;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .brand-feather { animation: feather-lands .95s cubic-bezier(.2,.65,.3,1) both; }
+  .brand-ink { animation: feather-writes .95s ease-out both; }
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-feather {
+    animation: feather-flick .65s ease-in-out both;
+  }
+  :is(.site-brand, .workspace-brand):is(:hover, :focus-visible) .brand-ink {
+    animation: feather-ink-flick .65s ease-out both;
+  }
+}
+@keyframes feather-lands {
+  0% { opacity: 0; transform: translate(2px, -4px) rotate(-21deg); }
+  33% { opacity: 1; }
+  61% { transform: translate(-.7px, .6px) rotate(10deg); }
+  100% { transform: translate(0) rotate(0); }
+}
+@keyframes feather-writes {
+  0%, 52% { transform: scaleX(0); }
+  100% { transform: scaleX(1); }
+}
+@keyframes feather-flick {
+  32% { transform: translate(1px, -2px) rotate(-17deg); }
+  66% { transform: translate(-.5px, .5px) rotate(8deg); }
+}
+@keyframes feather-ink-flick {
+  38% { transform: scaleX(.42); }
+  82% { transform: scaleX(1.12); }
+}
 .close-sidebar { margin-left: auto; }
 .icon-button, .mini-button {
   display: inline-grid;

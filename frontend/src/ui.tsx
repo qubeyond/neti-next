@@ -4,11 +4,13 @@ import { useEffect, useRef, type ReactNode } from 'react'
 export function BrandMark({ className = '' }: { className?: string }) {
   return (
     <span className={'brand-mark ' + className} aria-hidden="true">
-      <svg viewBox="0 0 32 32" fill="none">
-        <path d="M5 24.5 15.8 6h5.9L11 24.5H5Z" fill="currentColor"/>
-        <path d="m16 24.5 5.7-10.2 5.6 10.2H16Z" fill="currentColor" opacity=".62"/>
-        <path d="M4 27h24" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity=".7"/>
-      </svg>
+      <span className="brand-feather">
+        <svg viewBox="0 0 32 32" fill="none">
+          <path d="M28.7 3.7c-7.6-.2-15.6 3.4-19 9.4-1.5 2.7-1.7 5.7-.5 8.2 3.6-5.2 8.3-9.4 13.3-12.3-4.4 3.9-8.6 8.6-11.3 13.3 2.9.9 5.6.1 8-1.6l-2.6-.6 4.6-1.2c1-1 1.8-2.2 2.5-3.4l-2.8.1 4.2-2.4c1.8-3.2 2.9-6.5 3.6-9.5Z" fill="currentColor"/>
+          <path d="M5.8 26.7c3.5-7 8.7-13.1 14.9-17" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round"/>
+        </svg>
+      </span>
+      <span className="brand-ink"/>
     </span>
   )
 }
