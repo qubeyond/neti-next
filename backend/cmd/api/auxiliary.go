@@ -60,6 +60,11 @@ func (s *auxiliary) demoRun(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	profile, err := s.profiles.Profile(who)
+	if err != nil {
+		return err
+	}
+	input.Instructions = profile.Instructions
 	id := httpapi.RequestID(r.Context())
 	permit, err := s.turns.Admit(who.Owner, "", id)
 	if err != nil {
@@ -204,6 +209,7 @@ func readDemoMultipart(w http.ResponseWriter, r *http.Request, input *demoInput)
 
 type auxiliary struct {
 	accounts *account.Handler
+	profiles *account.Service
 	agent    chat.Agent
 	turns    *limits.Turns
 }

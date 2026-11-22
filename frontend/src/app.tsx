@@ -12,6 +12,7 @@ import { universityPrompts } from './university-prompts'
 import { useWorkspace } from './use-workspace'
 
 const DemoStudio = lazy(() => import('./demo-studio'))
+const TracePreview = import.meta.env.DEV ? lazy(() => import('./trace-preview')) : null
 
 const compactViewport = '(max-width: 760px)'
 
@@ -241,7 +242,7 @@ function Workspace({ profile, guest, incognito, onGuest, onProfile, demoEnabled 
 
   async function logout() {
     await api.logout()
-    onProfile(null)
+    window.location.replace('/register')
   }
 
   function closeSidebar() {
@@ -283,7 +284,7 @@ function Workspace({ profile, guest, incognito, onGuest, onProfile, demoEnabled 
             </nav> : <p>{searchTerm ? 'Диалоги не найдены.' : 'Здесь появятся ваши диалоги.'}</p>}
           </div>
           <div className="sidebar-footer">
-            {demoEnabled && <a className="nav-button" href="#demo">Демо трассировки</a>}
+            {demoEnabled && <a className="nav-button" href="#demo">Трассировка</a>}
             <ProfileMenu profile={profile} disabled={busy} onSettings={() => setSettings(true)}
               onLogout={() => { void logout().catch((error) => work.setNotice(errorText(error))) }}/>
           </div>
@@ -403,6 +404,7 @@ function WorkspaceApp() {
 
 export function App() {
   const path = location.pathname.replace(/\/+$/, '')
+  if (TracePreview && path === '/trace-preview') return <Suspense fallback={null}><TracePreview/></Suspense>
   if (path === '/login') return <AccountPage mode="login"/>
   if (path === '/register') return <AccountPage mode="register"/>
   return <WorkspaceApp/>

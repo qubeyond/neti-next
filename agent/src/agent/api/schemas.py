@@ -25,6 +25,7 @@ class QuestionRequest(BaseModel):
     quoted_text: Annotated[str, StringConstraints(max_length=1200)] = ""
     attachment_text: Annotated[str, StringConstraints(max_length=6000)] = ""
     image_source: ImageSource | None = None
+    user_instructions: Annotated[str, StringConstraints(max_length=2000)] = ""
 
 
 class Citation(BaseModel):

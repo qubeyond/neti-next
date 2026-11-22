@@ -101,8 +101,8 @@ export function SettingsDialog({ profile, onClose, onProfile, onClear, onLogout,
         </form>}
         {section === 'agent' && profile && <form className="setting-section" onSubmit={save}>
           <h3>Агент</h3>
-          <label>Инструкция для агента<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={4} maxLength={2000} placeholder="Например, отвечай кратко и приводи источники."/></label>
-          <p className="muted">Инструкция сохраняется в профиле. Агент начнёт учитывать её после обновления API.</p>
+          <label>Инструкция для агента<textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={7} maxLength={2000} placeholder="Например, отвечай кратко и приводи источники."/></label>
+          <p className="muted">Применяется со следующего сообщения во всех ваших чатах. Задайте стиль, язык и подробность ответов.</p>
           <button type="submit" className="primary-button" disabled={saving}>Сохранить инструкцию</button>
         </form>}
         {section === 'data' && <section className="setting-section danger-zone">

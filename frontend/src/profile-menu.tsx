@@ -1,4 +1,3 @@
-import { GlobeIcon } from '@phosphor-icons/react/dist/icons/Globe'
 import { InfoIcon } from '@phosphor-icons/react/dist/icons/Info'
 import { SignOutIcon } from '@phosphor-icons/react/dist/icons/SignOut'
 import { useEffect, useRef, useState } from 'react'
@@ -15,7 +14,7 @@ type Props = {
 
 export function ProfileMenu({ profile, disabled, onSettings, onLogout }: Props) {
   const [open, setOpen] = useState(false)
-  const [detail, setDetail] = useState<'language' | 'about' | null>(null)
+  const [detail, setDetail] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const firstAction = useRef<HTMLButtonElement>(null)
@@ -58,14 +57,17 @@ export function ProfileMenu({ profile, disabled, onSettings, onLogout }: Props) 
       aria-controls="profile-actions" onClick={() => setOpen(!open)}><PigeonIcon name="settings"/></button>
     <div className="profile-actions" id="profile-actions" hidden={!open} role="group" aria-label="Действия профиля">
       <button ref={firstAction} className="nav-button" type="button" onClick={() => choose(onSettings)}><PigeonIcon name="settings"/> Настройки</button>
-      <button className="nav-button" type="button" onClick={() => choose(() => setDetail('language'))}><GlobeIcon/> Язык</button>
-      <button className="nav-button" type="button" onClick={() => choose(() => setDetail('about'))}><InfoIcon/> Подробнее</button>
+      <button className="nav-button" type="button" onClick={() => choose(() => setDetail(true))}><InfoIcon/> Подробнее</button>
       <button className="nav-button profile-logout" type="button" onClick={() => choose(onLogout)}><SignOutIcon/> Выйти</button>
     </div>
-    {detail && <Modal title={detail === 'language' ? 'Язык' : 'О Пигеоне'} onClose={() => setDetail(null)}>
-      <div className="settings-form">
-        {detail === 'language' ? <p>Язык интерфейса — русский.</p> :
-          <p>Пигеон — агент по вузам России. Помогает разобраться с поступлением, учёбой и общежитием и найти подтверждающие источники.</p>}
+    {detail && <Modal title="О Пигеоне" onClose={() => setDetail(false)} className="about-modal">
+      <div className="settings-form about-content">
+        <p className="about-intro">Пигеон — агент по вузам России.</p>
+        <p>Помогает разобраться с поступлением, программами, общежитиями и студенческой жизнью. Задавайте вопросы, уточняйте условия и прикладывайте документы.</p>
+        <section><h3>Ответы с источниками</h3><p>Наведите на ссылку с названием сайта, чтобы увидеть цитату, или нажмите, чтобы открыть оригинал. Сроки и требования сверяйте с документами нужного года.</p></section>
+        <section><h3>Документы и голос</h3><p>Прикрепите изображение или PDF для разбора. Голосовая запись превращается в черновик, который можно поправить перед отправкой.</p></section>
+        <section><h3>Ваше рабочее пространство</h3><p>Чаты хранят отдельный контекст. В настройках профиля можно изменить имя и задать предпочтения для ответов агента.</p></section>
+        <section><h3>Ход работы</h3><p>Этапы под ответом показывают поиск и чтение материалов. Когда сведений недостаточно, уточните вопрос или приложите официальный источник.</p></section>
       </div>
     </Modal>}
   </div>

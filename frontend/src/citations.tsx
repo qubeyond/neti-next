@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { PigeonIcon } from './pigeon-icon'
 import { safeURL, type Citation } from './api'
 
 export type CitationReference = {
@@ -25,7 +26,7 @@ export function sourceLocation(citation: Citation) {
   return url.href
 }
 
-export function citationReferences(messageID: string, citations: Citation[], openPhoto?: (citation: Citation) => void) {
+export function groupCitations(messageID: string, citations: Citation[], openPhoto?: (citation: Citation) => void) {
   const references = new Map<number, CitationReference>()
   const byEvidence = new Map<string, CitationReference>()
 
@@ -52,16 +53,17 @@ export function citationReferences(messageID: string, citations: Citation[], ope
     const ref = citation.ref ?? (numbered ? undefined : index + 1)
     if (ref != null && !references.has(ref)) references.set(ref, reference)
   }
-  return references
+  return { references, sources: Array.from(byEvidence.values()) }
 }
 
 export function CitationLink({ reference }: { reference: CitationReference }) {
-  const { citation, number } = reference
+  const { citation } = reference
   const tooltipID = useId()
   const [position, setPosition] = useState<{ left: number; top: number; above: boolean }>()
   const [hovered, setHovered] = useState(false)
   const [focused, setFocused] = useState(false)
   const target = sourceLocation(citation)
+  const label = target ? new URL(target).hostname.replace(/^www\./, '') : citation.attachment_id ? 'Фото' : 'Источник'
   const visible = (hovered || focused) && position
 
   function place(element: HTMLElement) {
@@ -77,7 +79,7 @@ export function CitationLink({ reference }: { reference: CitationReference }) {
 
   const props = {
     className: 'inline-citation',
-    'aria-label': `Открыть цитату ${number}`,
+    'aria-label': `Открыть источник ${label}`,
     'aria-describedby': visible ? tooltipID : undefined,
     onMouseEnter: (event: React.MouseEvent<HTMLElement>) => { place(event.currentTarget); setHovered(true) },
     onMouseLeave: () => setHovered(false),
@@ -86,7 +88,7 @@ export function CitationLink({ reference }: { reference: CitationReference }) {
     onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.key === 'Escape') { setHovered(false); setFocused(false) }
     },
-    children: `〔${number}〕`,
+    children: <><PigeonIcon name={target ? 'external' : 'file'}/><span>{label}</span></>,
   }
 
   return <>
@@ -97,7 +99,7 @@ export function CitationLink({ reference }: { reference: CitationReference }) {
       }}/>}
     {visible && createPortal(<div className="citation-preview" id={tooltipID} role="tooltip"
       style={{ left: position.left, top: position.top, transform: position.above ? 'translateY(-100%)' : undefined }}>
-      {citation.quote}
+      <strong>{label}</strong><p>{citation.quote}</p>
     </div>, document.body)}
   </>
 }

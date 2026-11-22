@@ -29,7 +29,7 @@ func routes(db *storage.Store, agent chat.Agent, secureCookies bool) http.Handle
 	accountHTTP.RegisterRoutes(mux)
 	chatHTTP.RegisterRoutes(mux)
 	mux.HandleFunc("GET /api/v1/events", hub.Handler(accounts))
-	extra := &auxiliary{accounts: accountHTTP, agent: agent, turns: turns}
+	extra := &auxiliary{accounts: accountHTTP, profiles: accounts, agent: agent, turns: turns}
 	mux.HandleFunc("GET /api/v1/demo", httpapi.Handle(extra.demoAccess))
 	mux.HandleFunc("POST /api/v1/demo/runs", httpapi.Handle(extra.demoRun))
 	mux.HandleFunc("POST /api/v1/drafts/transcribe", httpapi.Handle(extra.transcribeDraft))

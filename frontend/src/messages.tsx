@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PigeonIcon } from './pigeon-icon'
 import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
+import { isImageTranscript } from './artifact-utils'
 import { PigeonAvatar } from './pigeon-avatar'
-import { citationReferences } from './citations'
+import { groupCitations } from './citations'
+import { PigeonThought } from './pigeon-thought'
 import { downloadDeadline } from './calendar'
 import { ChatBlockView } from './chat-blocks'
 import { RunActivity } from './run-activity'
@@ -13,12 +15,16 @@ const answerDate = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeSt
 
 function AttachedFile({ file, session, chat }: { file: FileItem; session: Session; chat: string }) {
   const [preview, setPreview] = useState('')
+  const [textPreview, setTextPreview] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const mediaURL = useRef('')
   const alive = useRef(true)
   const image = /^image\/(png|jpeg|gif|webp|avif)$/i.test(file.mime)
   const audio = file.mime.startsWith('audio/')
+  const pdf = file.mime === 'application/pdf'
+  const text = file.mime.startsWith('text/') || file.mime === 'application/json'
+  const previewable = image || audio || pdf || text
 
   useEffect(() => {
     alive.current = true
@@ -39,7 +45,9 @@ function AttachedFile({ file, session, chat }: { file: FileItem; session: Sessio
     setError('')
     try {
       const blob = await api.download(session, chat, file.id)
+      const content = text && !download ? await blob.slice(0, 200_000).text() : ''
       if (!alive.current) return
+      setTextPreview(content)
       const url = URL.createObjectURL(blob)
       if (download) {
         const anchor = document.createElement('a')
@@ -61,11 +69,20 @@ function AttachedFile({ file, session, chat }: { file: FileItem; session: Sessio
   return <div className="attachment">
     <div className="attachment-line">
       {image ? <PigeonIcon name="photo"/> : <PigeonIcon name="file"/>}
-      <span title={file.name}>{file.name}</span>
-      {(image || audio) && <button type="button" disabled={busy} onClick={() => { void open(false) }}>{preview ? 'Скрыть' : image ? 'Просмотр' : 'Прослушать'}</button>}
+      <span className="attachment-name" title={file.name}>{file.name}<small>{new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(file.size / 1024)} КБ</small></span>
+      {previewable && <button type="button" disabled={busy} onClick={() => { void open(false) }}>{preview ? 'Скрыть' : audio ? 'Прослушать' : 'Просмотр'}</button>}
       <button type="button" className="mini-button" aria-label={'Скачать ' + file.name} disabled={busy} onClick={() => { void open(true) }}><PigeonIcon name="download"/></button>
     </div>
-    {preview && (image ? <img src={preview} alt={file.name}/> : <audio controls src={preview} aria-label={file.name}/>)}
+    {preview && <Modal title={file.name} className="file-preview-modal" onClose={() => { void open(false) }}>
+      <div className="file-preview-body">
+        {image && <img src={preview} alt={file.name}/>}
+        {audio && <audio controls src={preview} aria-label={file.name}/>}
+        {pdf && <object type="application/pdf" data={preview} aria-label={file.name}><p>Откройте PDF в отдельной вкладке или скачайте его.</p></object>}
+        {text && <><pre>{textPreview}</pre>{file.size > 200_000 && <p className="muted">Показано начало файла. Полный текст доступен при скачивании.</p>}</>}
+        <div className="file-preview-actions"><a className="soft-button" href={preview} download={file.name}>Скачать</a>
+          {(image || pdf) && <a className="soft-button" href={preview} target="_blank" rel="noreferrer">Открыть отдельно</a>}</div>
+      </div>
+    </Modal>}
     {error && <small role="alert">{error}</small>}
   </div>
 }
@@ -116,7 +133,9 @@ function ArtifactCard({ item }: { item: Artifact }) {
       <figcaption>{item.title}</figcaption></figure>
   }
   if (item.kind === 'quote' && item.text) {
-    return <div className="artifact-card"><strong>{item.title}</strong><blockquote>{item.text}</blockquote>{url && <a href={url} target="_blank" rel="noreferrer">Открыть источник <PigeonIcon name="external"/></a>}</div>
+    return <details className="artifact-card extracted-document"><summary><PigeonIcon name="file"/><span>{item.title}</span><small>Текст документа</small></summary>
+      <div className="extracted-document-text"><pre>{item.text}</pre></div>
+      {url && <a href={url} target="_blank" rel="noreferrer">Открыть источник <PigeonIcon name="external"/></a>}</details>
   }
   if (!url) return null
   return <a className="artifact-card artifact-link" href={url} target="_blank" rel="noreferrer">
@@ -141,8 +160,9 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
   const [selectedPhoto, setSelectedPhoto] = useState<Citation | null>(null)
   const assistant = item.role === 'assistant'
 
+  const artifacts = item.artifacts?.filter((artifact) => !isImageTranscript(artifact))
   const evidence = item.citations
-  const references = useMemo(() => citationReferences(item.id, evidence ?? [], readOnly ? undefined : setSelectedPhoto), [item.id, evidence, readOnly])
+  const references = useMemo(() => groupCitations(item.id, evidence ?? [], readOnly ? undefined : setSelectedPhoto).references, [item.id, evidence, readOnly])
 
   async function copy() {
     try {
@@ -167,7 +187,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
 
   return <article className={'assistant-message' + (mascot ? ' with-mascot' : '') + (working ? ' awaiting-answer' : '')} aria-label="Ответ Пигеона">
     <RunActivity item={item}/>
-    {mascot ? <div className="assistant-mascot"><PigeonAvatar speaking={typing} thinking={working}/></div> : null}
+    {mascot ? <div className="assistant-mascot"><PigeonAvatar speaking={typing} thinking={working}/>{working && <PigeonThought/>}</div> : null}
     {!working && <div className={'assistant-content' + (item.state !== 'failed' || mascot ? ' speech-bubble' : '') + (animate && item.state === 'complete' ? ' reveal' : '')}>
       <header className="message-heading"><strong>Пигеон</strong></header>
       {item.state === 'failed' && <div className="answer-error">
@@ -179,7 +199,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
           <MarkdownContent text={item.text} references={references} animate={animate} onTyping={setTyping}/>
         </div>
         {item.blocks?.map((block, index) => block.kind !== 'gap' && <ChatBlockView key={index} block={block} sources={references}/>)}
-        {!!item.artifacts?.length && <div className="artifact-grid">{item.artifacts.map((artifact, index) => <ArtifactCard item={artifact} key={index}/>)}</div>}
+        {!!artifacts?.length && <div className="artifact-grid">{artifacts.map((artifact, index) => <ArtifactCard item={artifact} key={index}/>)}</div>}
         {!!item.events?.length && <div className="deadline-actions" aria-label="Сроки для календаря">
           {item.events.map((event, index) => {
             const group = (evidence ?? []).filter((source) => source.ref === event.citation && source.url)
