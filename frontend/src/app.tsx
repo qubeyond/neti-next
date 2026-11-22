@@ -242,7 +242,7 @@ function Workspace({ profile, guest, incognito, onGuest, onProfile, demoEnabled 
 
   async function logout() {
     await api.logout()
-    onProfile(null)
+    window.location.replace('/register')
   }
 
   function closeSidebar() {
@@ -284,7 +284,7 @@ function Workspace({ profile, guest, incognito, onGuest, onProfile, demoEnabled 
             </nav> : <p>{searchTerm ? 'Диалоги не найдены.' : 'Здесь появятся ваши диалоги.'}</p>}
           </div>
           <div className="sidebar-footer">
-            {demoEnabled && <a className="nav-button" href="#demo">Демо трассировки</a>}
+            {demoEnabled && <a className="nav-button" href="#demo">Трассировка</a>}
             <ProfileMenu profile={profile} disabled={busy} onSettings={() => setSettings(true)}
               onLogout={() => { void logout().catch((error) => work.setNotice(errorText(error))) }}/>
           </div>

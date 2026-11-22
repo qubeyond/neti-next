@@ -93,6 +93,9 @@ func (agent Client) prepare(ctx context.Context, input chat.AgentRequest, report
 		history = append(history, historyTurn{message.Role, string(runes[:min(800, len(runes))])})
 	}
 	payload := map[string]any{"question": question}
+	if input.Instructions != "" {
+		payload["user_instructions"] = input.Instructions
+	}
 	if len(history) > 0 {
 		payload["history"] = history[max(0, len(history)-historyLimit):]
 	}

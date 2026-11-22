@@ -1,6 +1,7 @@
 """Загружает настройки агента и валидирует используемые параметры."""
 
 import os
+from contextvars import ContextVar
 from pathlib import Path
 
 from dotenv import dotenv_values
@@ -33,6 +34,7 @@ PROMPT_NAMES = (
     "EVIDENCE_REFERENCE_PROMPT",
 )
 MAX_SEARCH_RESULTS = 20
+USER_INSTRUCTIONS: ContextVar[str] = ContextVar("user_instructions", default="")
 
 
 def _load_prompts(*directories: Path) -> dict[str, str]:

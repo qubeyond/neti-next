@@ -37,9 +37,9 @@
 }
 .account-art .pigeon-avatar {
   --pigeon-line: 4.33px;
-  width: min(96%, calc((100dvh - 76px) * 1.05));
+  width: 100%;
   aspect-ratio: 1.07;
-  border-radius: 0 0 24% 24% / 0 0 10% 10%;
+  border-radius: 0;
   overflow: hidden;
 }
 .account-content {

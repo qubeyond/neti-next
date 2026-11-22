@@ -4,6 +4,7 @@ import { Composer, emptyDraft, type Draft } from './composer'
 import { groupCitations, sourceLocation } from './citations'
 import MarkdownContent from './markdown-content'
 import { PigeonIcon } from './pigeon-icon'
+import { isImageTranscript } from './artifact-utils'
 import { TraceMenu } from './trace-menu'
 import './trace-workspace.css'
 
@@ -189,7 +190,7 @@ function TraceResult({ result, requestID, photo }: { result: End; requestID: str
     details.open = true
     details.querySelector('summary')?.focus()
   })
-  const attachments = answer.artifacts?.filter((artifact) => artifact.text || safeURL(artifact.url)) ?? []
+  const attachments = answer.artifacts?.filter((artifact) => !isImageTranscript(artifact) && (artifact.text || safeURL(artifact.url))) ?? []
   const status = decisions[answer.status] ?? answer.status
   const note = decision && decisions[decision] !== status ? decisions[decision] : undefined
   const followup = recovery ? recoveries[recovery] : undefined

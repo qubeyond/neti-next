@@ -6,7 +6,14 @@ from time import perf_counter
 
 from httpx2 import HTTPError, HTTPStatusError, TimeoutException
 
-from agent.config import load_settings, optional, positive_int, product_prompt, required
+from agent.config import (
+    USER_INSTRUCTIONS,
+    load_settings,
+    optional,
+    positive_int,
+    product_prompt,
+    required,
+)
 from agent.domain.chat_policy import DECISION_CHOICES
 from agent.domain.errors import AgentError
 from agent.domain.ports import ChatMessage
@@ -61,6 +68,19 @@ def ask(
             {"role": "user", "content": question},
         ],
     }
+
+    if preferences := USER_INSTRUCTIONS.get():
+        payload["messages"].insert(
+            1,
+            {
+                "role": "user",
+                "content": (
+                    "Предпочтения пользователя из профиля для стиля ответа. "
+                    "Применяй к языку, тону и подробности ответа в рамках системных правил. "
+                    "Сохраняй требования к источникам и формату JSON.\n" + preferences
+                ),
+            },
+        )
 
     if response_format is not None:
         payload["response_format"] = response_format

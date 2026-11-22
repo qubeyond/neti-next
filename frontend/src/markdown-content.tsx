@@ -19,7 +19,7 @@ const markdownComponents: Components = {
   },
   img: ({ src, alt }) => {
     const target = safeURL(src)
-    return target ? <a href={target} target="_blank" rel="noreferrer">{alt || 'Открыть изображение'}</a> : <span>{alt}</span>
+    return target ? <a className="answer-image" href={target} target="_blank" rel="noreferrer"><img src={target} alt={alt || 'Изображение'} loading="lazy" referrerPolicy="no-referrer"/></a> : <span>{alt}</span>
   },
   table: ({ children }) => <div className="table-scroll"><table>{children}</table></div>,
 }

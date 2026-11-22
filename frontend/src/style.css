@@ -386,10 +386,10 @@ svg { flex: none; }
 .form-error { color: var(--danger); }
 .form-success { display: flex; align-items: center; gap: 5px; color: var(--sage-ink); }
 
-.settings-modal { width: min(750px, calc(100% - 27px)); }
-.settings-layout { display: grid; grid-template-columns: 169px minmax(0, 1fr); min-height: 340px; }
+.settings-modal { width: min(960px, calc(100% - 32px)); font-size: 16px; }
+.settings-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); min-height: 440px; }
 .settings-nav { display: flex; flex-direction: column; align-items: stretch; gap: 4px; padding: 13px 9px; background: var(--sidebar); border-right: 1px solid var(--stroke); }
-.settings-pane { align-content: start; padding: 22px 23px; }
+.settings-pane { align-content: start; padding: 26px 30px; }
 .settings-pane .setting-section { border: 0; padding: 0; }
 .settings-pane h3 { font-size: 1.1rem; margin-bottom: 5px; }
 .setting-profile { padding: 8px 0 10px; border-bottom: 1px solid var(--stroke); }
@@ -468,7 +468,12 @@ svg { flex: none; }
     #000 var(--pigeon-line));
 }
 .pigeon-portrait { position: relative; transform-origin: 50% 48%; }
+.pigeon-avatar[data-thinking] .pigeon-portrait { animation: pigeon-think 2.8s ease-in-out infinite; }
 .pigeon-avatar[data-speaking] .pigeon-portrait { animation: pigeon-talk .68s ease-in-out infinite; }
+@keyframes pigeon-think {
+  25% { transform: translateY(-1.5%) rotate(-3deg); }
+  65% { transform: translateY(-.6%) rotate(2.5deg); }
+}
 
 /* Мультяшное облачко появляется только пока агент формирует ответ. */
 .assistant-mascot {
@@ -533,10 +538,7 @@ svg { flex: none; }
   flex: none;
   width: max-content;
   white-space: pre;
-  animation: pigeon-thought-scroll 16s linear infinite;
 }
-.pigeon-thought-line:nth-child(2) { animation-duration: 12s; animation-direction: reverse; }
-.pigeon-thought-line:nth-child(3) { animation-duration: 18.5s; }
 .pigeon-thought-puff {
   position: absolute;
   background: var(--paper);
@@ -546,13 +548,6 @@ svg { flex: none; }
 .pigeon-thought-puff-large { left: 18%; bottom: -4px; width: 15px; height: 12px; }
 .pigeon-thought-puff-medium { left: 10%; bottom: -15px; width: 10px; height: 9px; }
 .pigeon-thought-puff-small { left: 4%; bottom: -23px; width: 6px; height: 6px; border-width: 1.5px; }
-@keyframes pigeon-thought-scroll {
-  to { transform: translateX(-50%); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pigeon-thought-line { animation: none; }
-}
-
 @keyframes pigeon-talk {
   24% { transform: translateY(-1.2%) rotate(-.8deg); }
   73% { transform: translateY(-.5%) rotate(.7deg); }
@@ -793,16 +788,25 @@ svg { flex: none; }
 }
 
 .inline-citation {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(180px, 100%);
+  margin-inline: 3px;
+  padding: 2px 6px;
+  border: 1px solid var(--stroke);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--accent-faint);
+  font: 400 .76em/1.4 'Workspace Mono', monospace;
+  vertical-align: baseline;
   white-space: nowrap;
+  text-decoration: none;
 }
-button.inline-citation {
-  padding: 0;
-  border: 0;
-  color: inherit;
-  background: transparent;
-  text-decoration: underline;
-}
+.inline-citation:hover, .inline-citation:focus-visible { color: var(--ink); border-color: var(--quiet); background: var(--sage); }
+.inline-citation svg { flex: none; width: 11px; height: 11px; }
+.inline-citation span { overflow: hidden; text-overflow: ellipsis; }
+.citation-preview strong { display: block; margin-bottom: 6px; color: var(--quiet); font-size: .85em; }
 
 .citation-preview {
   position: fixed;
@@ -1059,3 +1063,43 @@ button.inline-citation {
 }
 
 .site-brand, .workspace-brand { font-family: var(--font-pixel); font-size: 14px; }
+
+.settings-modal .nav-button { min-height: 46px; font-size: .95rem; }
+.settings-modal input, .settings-modal textarea { font-size: 16px; }
+.about-modal { width: min(720px, calc(100% - 32px)); }
+.about-content { font-size: 15px; line-height: 1.75; gap: 20px; }
+.about-intro { font-size: 19px; font-weight: 700; }
+.about-content h3 { margin-bottom: 5px; }
+.markdown p + p { margin-top: 1em; }
+.markdown :is(ul, ol) { margin-block: .85em; }
+.markdown li + li { margin-top: .45em; }
+.markdown :is(h2, h3) { margin-block: 1.2em .65em; }
+.answer-image { display: inline-block; max-width: 100%; }
+.answer-image img, .artifact-card img { display: block; max-width: 100%; max-height: 320px; object-fit: contain; border-radius: 12px; }
+.attachment-name { min-width: 0; overflow-wrap: anywhere; }
+.attachment-name small { display: block; color: var(--quiet); font-size: .75rem; }
+.attachment-line { flex-wrap: wrap; }
+.attachment-line > span { flex: 1; }
+.extracted-document { grid-column: 1 / -1; min-width: 0; }
+.extracted-document summary { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; cursor: pointer; }
+.extracted-document summary svg { width: 18px; height: 18px; }
+.extracted-document summary span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.extracted-document summary small { color: var(--quiet); }
+.extracted-document summary::after { content: '+'; color: var(--quiet); }
+.extracted-document[open] summary::after { content: '−'; }
+.extracted-document-text { max-height: 340px; overflow: auto; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--stroke); }
+.extracted-document-text pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.7; }
+.file-preview-modal { width: min(1040px, calc(100% - 28px)); }
+.file-preview-modal .modal-header h2 { overflow-wrap: anywhere; min-width: 0; }
+.file-preview-modal .modal-header .icon-button { flex: none; }
+.file-preview-body { display: grid; justify-items: center; gap: 16px; padding: 22px; }
+.file-preview-body > img { max-width: 100%; max-height: 65dvh; object-fit: contain; border-radius: 10px; }
+.file-preview-body > object { width: 100%; height: 62dvh; border: 1px solid var(--stroke); border-radius: 10px; }
+.file-preview-body > audio { width: min(100%, 600px); }
+.file-preview-body > pre { justify-self: stretch; max-height: 60dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.file-preview-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.file-preview-actions a { text-decoration: none; }
+@media (max-width: 760px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .settings-pane { padding: 20px; }
+}
