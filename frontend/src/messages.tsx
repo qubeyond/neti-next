@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { PigeonIcon } from './pigeon-icon'
 import { api, errorText, safeURL, type Artifact, type Citation, type FileItem, type Message, type Session } from './api'
-import { AsciiPigeon } from './pigeon-ascii'
+import { PigeonAvatar } from './pigeon-avatar'
 import { citationReferences } from './citations'
 import { downloadDeadline } from './calendar'
 import { ChatBlockView } from './chat-blocks'
@@ -168,7 +168,7 @@ export function ChatMessage({ item, chat, session, latest, mascot, animate, read
 
   return <article className={'assistant-message' + (mascot ? ' with-mascot' : '') + (working ? ' awaiting-answer' : '')} aria-label="Ответ Пигеона">
     <RunActivity item={item}/>
-    {mascot ? <div className="assistant-mascot"><AsciiPigeon speaking={typing}/></div> : null}
+    {mascot ? <div className="assistant-mascot"><PigeonAvatar speaking={typing}/></div> : null}
     {!working && <div className={'assistant-content' + (item.state !== 'failed' || mascot ? ' speech-bubble' : '') + (animate && item.state === 'complete' ? ' reveal' : '')}>
       <header className="message-heading"><strong>Пигеон</strong></header>
       {item.state === 'failed' && <div className="answer-error">
